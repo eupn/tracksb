@@ -10,10 +10,7 @@ extern crate stm32wb_hal as hal;
 
 use cortex_m_rt::{exception, ExceptionFrame};
 
-use rtic::{
-    app,
-    cyccnt::{U32Ext as _},
-};
+use rtic::{app, cyccnt::U32Ext as _};
 
 use hal::{
     flash::FlashExt,
@@ -34,12 +31,14 @@ use hal::{
     },
 };
 use rtic::export::DWT;
-use tracksb::rgbled::{LedColor, RgbLed};
+use tracksb::{
+    bsp,
+    imu::Imu,
+    pmic::Pmic,
+    rgbled::{LedColor, RgbLed},
+};
 use usb_device::{bus, device::UsbDevice, prelude::*};
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
-use tracksb::pmic::Pmic;
-use tracksb::imu::Imu;
-use tracksb::bsp;
 
 const VCP_TX_BUFFER_SIZE: usize = 32;
 

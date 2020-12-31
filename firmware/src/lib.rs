@@ -8,10 +8,10 @@ use stm32wb_hal as _; // memory layout
 
 use panic_probe as _;
 
-pub mod rgbled;
-pub mod pmic;
 pub mod bsp;
 pub mod imu;
+pub mod pmic;
+pub mod rgbled;
 
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message
 // this prevents the panic message being printed *twice* when `defmt::panic` is invoked

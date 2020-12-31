@@ -4,7 +4,7 @@ use axp173::{
     AdcSampleRate, AdcSettings, Axp173, ChargingCurrent, Ldo, LdoKind, ShutdownLongPressTime,
     TsPinMode,
 };
-use embedded_hal::blocking::i2c::{WriteRead, Write};
+use embedded_hal::blocking::i2c::{Write, WriteRead};
 
 pub struct Pmic<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> {
     axp173: Axp173<I>,
@@ -14,9 +14,7 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<E, I>
     pub fn new(i2c: I) -> Result<Self, axp173::Error<E>> {
         let axp173 = Axp173::new(i2c);
 
-        Ok(Self {
-            axp173,
-        })
+        Ok(Self { axp173 })
     }
 
     pub fn init(&mut self) -> Result<(), axp173::Error<E>> {
@@ -28,17 +26,16 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<E, I>
             .set_charging_current(ChargingCurrent::CURRENT_100MA)?;
 
         // 25Hz sample rate, Disable TS, enable current sensing ADC
-        self.axp173
-            .set_adc_settings(
-                AdcSettings::default()
-                    .set_adc_sample_rate(AdcSampleRate::RATE_25HZ)
-                    .ts_adc(false)
-                    .set_ts_pin_mode(TsPinMode::SHUT_DOWN)
-                    .vbus_voltage_adc(true)
-                    .vbus_current_adc(true)
-                    .batt_voltage_adc(true)
-                    .batt_current_adc(true),
-            )?;
+        self.axp173.set_adc_settings(
+            AdcSettings::default()
+                .set_adc_sample_rate(AdcSampleRate::RATE_25HZ)
+                .ts_adc(false)
+                .set_ts_pin_mode(TsPinMode::SHUT_DOWN)
+                .vbus_voltage_adc(true)
+                .vbus_current_adc(true)
+                .batt_voltage_adc(true)
+                .batt_current_adc(true),
+        )?;
 
         self.axp173.set_coulomb_counter(true)?;
         self.axp173.resume_coulomb_counter()?;
@@ -68,9 +65,7 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<E, I>
     }
 }
 
-fn status<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>>(
-    axp173: &mut Axp173<I>
-) {
+fn status<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>>(axp173: &mut Axp173<I>) {
     // Is the device connected to the USB power supply?
     if axp173.vbus_present().unwrap() {
         defmt::info!("VBUS is present");
