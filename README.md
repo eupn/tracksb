@@ -39,6 +39,7 @@ for board flashing and debugging via RTT logging.
 ##### Firmware TODO List
 
 - [x] Stream quaternions via USB virtual serial port
+- [ ] Validate and fix IMU axes and quaternion data
 - [ ] Fancy PWM for RGB LED instead of simple on/off
 - [ ] Use interrupts for PMIC and IMU interaction
 - [ ] Use `async/.await`, especially for BLE
