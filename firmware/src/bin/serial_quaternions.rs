@@ -1,3 +1,6 @@
+//! Enables PMIC (AXP173), turns IMU (BNO080) on and starts to stream
+//! current board's position (rotation quaternions) via USB Virtual COM Port.
+
 #![no_main]
 #![no_std]
 #![allow(non_snake_case)]
@@ -123,8 +126,8 @@ const APP: () = {
         let serial = SerialPort::new(USB_BUS.as_ref().unwrap());
 
         let usb_dev = UsbDeviceBuilder::new(USB_BUS.as_ref().unwrap(), UsbVidPid(0x16c0, 0x27dd))
-            .manufacturer("Fake company")
-            .product("Serial port")
+            .manufacturer("eupn")
+            .product("TrackSB Rev. C")
             .serial_number("TEST")
             .device_class(USB_CLASS_CDC)
             .build();
