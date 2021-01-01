@@ -4,20 +4,38 @@ use axp173::{
     AdcSampleRate, AdcSettings, Axp173, ChargingCurrent, Ldo, LdoKind, ShutdownLongPressTime,
     TsPinMode,
 };
+use core::marker::PhantomData;
 use embedded_hal::blocking::i2c::{Write, WriteRead};
 
-pub struct Pmic<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> {
+pub trait PmicState {}
+pub struct Created;
+pub struct Initialized;
+impl PmicState for Created {}
+impl PmicState for Initialized {}
+
+pub struct Pmic<S: PmicState, E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> {
     axp173: Axp173<I>,
+    _s: PhantomData<S>,
 }
 
-impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<E, I> {
-    pub fn new(i2c: I) -> Result<Self, axp173::Error<E>> {
+pub struct PmicBuilder<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> {
+    _e: PhantomData<E>,
+    _i: PhantomData<I>,
+}
+
+impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> PmicBuilder<E, I> {
+    pub fn new(i2c: I) -> Result<Pmic<Created, E, I>, axp173::Error<E>> {
         let axp173 = Axp173::new(i2c);
 
-        Ok(Self { axp173 })
+        Ok(Pmic {
+            axp173,
+            _s: PhantomData,
+        })
     }
+}
 
-    pub fn init(&mut self) -> Result<(), axp173::Error<E>> {
+impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Created, E, I> {
+    pub fn init(mut self) -> Result<Pmic<Initialized, E, I>, axp173::Error<E>> {
         // Check the presence of AXP173
         self.axp173.init()?;
 
@@ -46,13 +64,16 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<E, I>
 
         self.axp173.disable_ldo(&LdoKind::LDO4)?;
 
-        self.set_imu_power(true)?;
-
         status(&mut self.axp173);
 
-        Ok(())
+        Ok(Pmic {
+            axp173: self.axp173,
+            _s: PhantomData,
+        })
     }
+}
 
+impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Initialized, E, I> {
     pub fn set_imu_power(&mut self, enable: bool) -> Result<(), axp173::Error<E>> {
         if enable {
             // Provide 2.8V for IMU via LDO3

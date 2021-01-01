@@ -9,9 +9,6 @@ use tracksb as _; // global logger + panicking-behavior + memory layout
 extern crate stm32wb_hal as hal;
 
 use cortex_m_rt::{exception, ExceptionFrame};
-
-use rtic::{app, cyccnt::U32Ext as _};
-
 use hal::{
     flash::FlashExt,
     i2c::I2c,
@@ -22,6 +19,7 @@ use hal::{
     },
     usb::{Peripheral, UsbBus, UsbBusType},
 };
+use rtic::{app, cyccnt::U32Ext as _};
 
 use hal::{
     delay::DelayCM,
@@ -32,9 +30,10 @@ use hal::{
 };
 use rtic::export::DWT;
 use tracksb::{
-    bsp,
-    imu::Imu,
-    pmic::Pmic,
+    bsp, imu,
+    imu::{Imu, ImuBuilder},
+    pmic,
+    pmic::{Pmic, PmicBuilder},
     rgbled::{LedColor, RgbLed},
 };
 use usb_device::{bus, device::UsbDevice, prelude::*};
@@ -56,8 +55,8 @@ const APP: () = {
         usb_dev: UsbDevice<'static, UsbBusType>,
         serial: SerialPort<'static, UsbBusType>,
 
-        pmic: Pmic<hal::i2c::Error, bsp::PmicI2c>,
-        imu: Imu<hal::i2c::Error, bsp::ImuI2c>,
+        pmic: Pmic<pmic::Initialized, hal::i2c::Error, bsp::PmicI2c>,
+        imu: Imu<imu::Initialized, hal::i2c::Error, bsp::ImuI2c>,
         delay: DelayCM,
 
         vcp_tx_buf: [u8; VCP_TX_BUFFER_SIZE],
@@ -148,8 +147,9 @@ const APP: () = {
         let sda = sda.into_open_drain_output(&mut gpiob.moder, &mut gpiob.otyper);
         let sda = sda.into_af4(&mut gpiob.moder, &mut gpiob.afrl);
         let i2c = I2c::i2c1(dp.I2C1, (scl, sda), 100.khz(), &mut rcc);
-        let mut pmic = Pmic::new(i2c).unwrap();
-        pmic.init().unwrap();
+        let pmic = PmicBuilder::new(i2c).unwrap();
+        let mut pmic = pmic.init().unwrap();
+        pmic.set_imu_power(true).unwrap();
 
         /* IMU */
 
@@ -175,8 +175,8 @@ const APP: () = {
         // TODO: wait for IMU interrupt instead
         delay.delay_ms(500_u16);
 
-        let mut imu = Imu::new(i2c3);
-        imu.init(&mut delay, IMU_REPORTING_INTERVAL_MS).unwrap();
+        let imu = ImuBuilder::new(i2c3);
+        let imu = imu.init(&mut delay, IMU_REPORTING_INTERVAL_MS).unwrap();
 
         let now = cx.start; // the start time of the system
         cx.schedule.poll_imu(now).unwrap();
