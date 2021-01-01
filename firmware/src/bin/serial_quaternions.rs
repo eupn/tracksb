@@ -10,7 +10,12 @@ extern crate stm32wb_hal as hal;
 
 use cortex_m_rt::{exception, ExceptionFrame};
 use hal::{
+    delay::DelayCM,
     flash::FlashExt,
+    gpio::{
+        gpioa::{PA4, PA5, PA6},
+        Output, PushPull, State,
+    },
     i2c::I2c,
     prelude::*,
     rcc::{
@@ -19,16 +24,7 @@ use hal::{
     },
     usb::{Peripheral, UsbBus, UsbBusType},
 };
-use rtic::{app, cyccnt::U32Ext as _};
-
-use hal::{
-    delay::DelayCM,
-    gpio::{
-        gpioa::{PA4, PA5, PA6},
-        Output, PushPull, State,
-    },
-};
-use rtic::export::DWT;
+use rtic::{app, cyccnt::U32Ext as _, export::DWT};
 use tracksb::{
     bsp, imu,
     imu::{Imu, ImuBuilder},
