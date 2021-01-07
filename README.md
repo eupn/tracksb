@@ -40,9 +40,9 @@ for board flashing and debugging via RTT logging.
 
 - [x] Stream quaternions via USB virtual serial port
 - [ ] Validate and fix IMU axes and quaternion data
-- [ ] Use interrupts for communication with PMIC and IMU
+- [x] Use interrupts for communication with PMIC and IMU
   - [x] Poll IMU via interrupt
-  - [ ] Use interrupt for PMIC status updates (charging, button, etc.)
+  - [x] Use interrupt for PMIC status updates (charging, button, etc.)
 - [ ] Flash RGB LED instead of simple on/off
   - [x] Simple flash
   - [ ] PWM effects
