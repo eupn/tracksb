@@ -1,7 +1,7 @@
 //! Power Management IC (AXP173) routines
 
 use axp173::{
-    AdcSampleRate, AdcSettings, Axp173, ChargingCurrent, Ldo, LdoKind, ShutdownLongPressTime,
+    AdcSampleRate, AdcSettings, Axp173, ChargingCurrent, Irq, Ldo, LdoKind, ShutdownLongPressTime,
     TsPinMode,
 };
 use core::marker::PhantomData;
@@ -64,12 +64,26 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Creat
 
         self.axp173.disable_ldo(&LdoKind::LDO4)?;
 
+        self.axp173.clear_all_irq()?;
+        self.enable_irqs()?;
+
         status(&mut self.axp173);
 
         Ok(Pmic {
             axp173: self.axp173,
             _s: PhantomData,
         })
+    }
+
+    /// Enables interesting IRQs from PMIC.
+    fn enable_irqs(&mut self) -> Result<(), axp173::Error<E>> {
+        self.axp173.set_irq(axp173::Irq::ButtonShortPress, true)?;
+        self.axp173.set_irq(axp173::Irq::BatteryCharged, true)?;
+        self.axp173.set_irq(axp173::Irq::LowBatteryWarning, true)?;
+        self.axp173.set_irq(axp173::Irq::VbusPluggedIn, true)?;
+        self.axp173.set_irq(axp173::Irq::VbusUnplugged, true)?;
+
+        Ok(())
     }
 }
 
@@ -81,6 +95,37 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Initi
         } else {
             self.axp173.disable_ldo(&LdoKind::LDO3)?;
         }
+
+        Ok(())
+    }
+
+    /// Called from PMIC IRQ pin ISR. Checks IRQ flags and clears pending IRQs.
+    pub fn process_irqs(&mut self) -> Result<(), axp173::Error<E>> {
+        if self.axp173.check_irq(Irq::ButtonShortPress)? {
+            self.axp173.clear_irq(Irq::ButtonShortPress)?;
+            defmt::info!("Button pressed");
+        }
+        if self.axp173.check_irq(Irq::BatteryCharged)? {
+            self.axp173.clear_irq(Irq::BatteryCharged)?;
+            let charge_coulombs = self.axp173.read_charge_coulomb_counter()?;
+            defmt::info!("Battery charged, charge cc: {:u32}", charge_coulombs);
+        }
+        if self.axp173.check_irq(Irq::LowBatteryWarning)? {
+            self.axp173.clear_irq(Irq::LowBatteryWarning)?;
+            let discharge_coulombs = self.axp173.read_discharge_coulomb_counter()?;
+            defmt::info!("Low battery, discharge cc: {:u32}", discharge_coulombs);
+        }
+        if self.axp173.check_irq(Irq::VbusPluggedIn)? {
+            self.axp173.clear_irq(Irq::VbusPluggedIn)?;
+            defmt::info!("USB charger plugged in");
+        }
+        if self.axp173.check_irq(Irq::VbusUnplugged)? {
+            self.axp173.clear_irq(Irq::VbusUnplugged)?;
+            defmt::info!("USB charger unplugged");
+        }
+
+        // Clear other possible IRQs otherwise we can't rely on the IRQ pin
+        self.axp173.clear_all_irq()?;
 
         Ok(())
     }
