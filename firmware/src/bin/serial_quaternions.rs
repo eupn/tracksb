@@ -9,25 +9,27 @@ use tracksb as _; // global logger + panicking-behavior + memory layout
 extern crate stm32wb_hal as hal;
 
 use cortex_m_rt::{exception, ExceptionFrame};
+use embedded_hal::blocking::delay::DelayMs;
 use hal::{
     delay::DelayCM,
     flash::FlashExt,
     gpio::{
         gpioa::{PA4, PA5, PA6},
-        Output, PushPull, State,
+        ExtiPin, Output, PushPull, State,
     },
     i2c::I2c,
     prelude::*,
     rcc::{
-        ApbDivider, Config, HDivider, HseDivider, PllConfig, PllSrc, Rcc, RfWakeupClock,
+        ApbDivider, Config, HDivider, HseDivider, PllConfig, PllSrc, Rcc, RfWakeupClock, RtcClkSrc,
         StopWakeupClock, SysClkSrc, UsbClkSrc,
     },
     usb::{Peripheral, UsbBus, UsbBusType},
 };
-use rtic::{app, cyccnt::U32Ext as _, export::DWT};
+use rtic::{app, export::DWT};
 use tracksb::{
-    bsp, imu,
-    imu::{Imu, ImuBuilder},
+    bsp,
+    bsp::ImuIntPin,
+    imu::I2cOrImu,
     pmic,
     pmic::{Pmic, PmicBuilder},
     rgbled::{LedColor, RgbLed},
@@ -39,11 +41,11 @@ const VCP_TX_BUFFER_SIZE: usize = 32;
 
 const IMU_REPORTING_RATE_HZ: u16 = 8;
 const IMU_REPORTING_INTERVAL_MS: u16 = 1000 / IMU_REPORTING_RATE_HZ;
-const PERIOD: u32 = 64_000_000 / IMU_REPORTING_RATE_HZ as u32;
 
 type RedLedPin = PA4<Output<PushPull>>;
 type GreenLedPin = PA5<Output<PushPull>>;
 type BlueLedPin = PA6<Output<PushPull>>;
+type Rgb = RgbLed<RedLedPin, GreenLedPin, BlueLedPin>;
 
 #[app(device = stm32wb_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -52,21 +54,31 @@ const APP: () = {
         serial: SerialPort<'static, UsbBusType>,
 
         pmic: Pmic<pmic::Initialized, hal::i2c::Error, bsp::PmicI2c>,
-        imu: Imu<imu::Initialized, hal::i2c::Error, bsp::ImuI2c>,
+        imu: I2cOrImu<hal::i2c::Error, bsp::ImuI2c>,
+        imu_int_pin: ImuIntPin,
         delay: DelayCM,
 
         vcp_tx_buf: [u8; VCP_TX_BUFFER_SIZE],
 
-        rgb_led: RgbLed<RedLedPin, GreenLedPin, BlueLedPin>,
+        rgb_led: Rgb,
     }
 
-    #[init(schedule = [poll_imu])]
+    #[init]
     fn init(mut cx: init::Context) -> init::LateResources {
         static mut USB_BUS: Option<bus::UsbBusAllocator<UsbBusType>> = None;
 
         defmt::info!("Initializing");
 
-        let dp = cx.device;
+        let mut dp = cx.device;
+
+        // Allow using debugger and RTT during WFI/WFE (sleep)
+        dp.DBGMCU.cr.modify(|_, w| {
+            w.dbg_sleep().set_bit();
+            w.dbg_standby().set_bit();
+            w.dbg_stop().set_bit()
+        });
+        dp.RCC.ahb1enr.modify(|_, w| w.dma1en().set_bit());
+
         let mut rcc: Rcc = dp.RCC.constrain();
         rcc.set_stop_wakeup_clock(StopWakeupClock::MSI);
 
@@ -97,7 +109,7 @@ const APP: () = {
                 p: Some(3),
             })
             .usb_src(UsbClkSrc::PllQ)
-            //.rtc_src(RtcClkSrc::Lse)
+            .rtc_src(RtcClkSrc::Lse)
             .rf_wkp_sel(RfWakeupClock::Lse);
 
         let mut rcc = rcc.apply_clock_config(clock_config, &mut dp.FLASH.constrain().acr);
@@ -108,6 +120,25 @@ const APP: () = {
         let mut gpioa = dp.GPIOA.split(&mut rcc);
         let mut gpiob = dp.GPIOB.split(&mut rcc);
         let mut delay = hal::delay::DelayCM::new(rcc.clocks);
+
+        let red_led = gpioa.pa4.into_push_pull_output_with_state(
+            &mut gpioa.moder,
+            &mut gpioa.otyper,
+            State::High,
+        );
+        let green_led = gpioa.pa5.into_push_pull_output_with_state(
+            &mut gpioa.moder,
+            &mut gpioa.otyper,
+            State::High,
+        );
+        let blue_led = gpioa.pa6.into_push_pull_output_with_state(
+            &mut gpioa.moder,
+            &mut gpioa.otyper,
+            State::High,
+        );
+        let mut rgb_led = RgbLed::new(red_led, green_led, blue_led);
+
+        startup_animate(&mut rgb_led, &mut delay);
 
         let usb = Peripheral {
             usb: dp.USB,
@@ -156,6 +187,14 @@ const APP: () = {
         delay.delay_ms(100_u16);
         imu_rst.set_high().unwrap();
 
+        let imu_int_pin = bsp::init_imu_interrupt(
+            gpiob
+                .pb3
+                .into_pull_up_input(&mut gpiob.moder, &mut gpiob.pupdr),
+            &mut dp.SYSCFG,
+            &mut dp.EXTI,
+        );
+
         let scl = gpioa
             .pa7
             .into_floating_input(&mut gpioa.moder, &mut gpioa.pupdr);
@@ -167,64 +206,24 @@ const APP: () = {
         let sda = sda.into_af4(&mut gpiob.moder, &mut gpiob.afrl);
         let i2c3 = I2c::i2c3(dp.I2C3, (scl, sda), 100.khz(), &mut rcc);
 
-        // Wait for IMU to boot
-        // TODO: wait for IMU interrupt instead
-        delay.delay_ms(500_u16);
+        let imu = I2cOrImu::I2c(i2c3);
 
-        let imu = ImuBuilder::new(i2c3);
-        let imu = imu.init(&mut delay, IMU_REPORTING_INTERVAL_MS).unwrap();
-
-        let now = cx.start; // the start time of the system
-        cx.schedule.poll_imu(now).unwrap();
-
-        defmt::info!("Initialized {:u32} Hz", rcc.clocks.sysclk().0);
-
-        let red_led = gpioa.pa4.into_push_pull_output_with_state(
-            &mut gpioa.moder,
-            &mut gpioa.otyper,
-            State::High,
+        defmt::info!(
+            "Initialized MCU at {:u32} MHz and IMU at {:u16} Hz",
+            rcc.clocks.sysclk().0 / 1000,
+            IMU_REPORTING_RATE_HZ
         );
-        let green_led = gpioa.pa5.into_push_pull_output_with_state(
-            &mut gpioa.moder,
-            &mut gpioa.otyper,
-            State::High,
-        );
-        let blue_led = gpioa.pa6.into_push_pull_output_with_state(
-            &mut gpioa.moder,
-            &mut gpioa.otyper,
-            State::High,
-        );
-        let rgb_led = RgbLed::new(red_led, green_led, blue_led);
 
         init::LateResources {
             usb_dev,
             serial,
             pmic,
             imu,
+            imu_int_pin,
             delay,
             vcp_tx_buf: [0u8; VCP_TX_BUFFER_SIZE],
             rgb_led,
         }
-    }
-
-    #[idle]
-    fn idle(_cx: idle::Context) -> ! {
-        loop {
-            cortex_m::asm::nop();
-        }
-    }
-
-    #[task(resources = [imu, delay, rgb_led], schedule = [poll_imu], spawn = [vcp_tx])]
-    fn poll_imu(mut cx: poll_imu::Context) {
-        let imu = &mut cx.resources.imu;
-        if let Some(quat) = imu.quaternion(cx.resources.delay).unwrap() {
-            cx.resources.rgb_led.toggle(LedColor::Green);
-            cx.spawn.vcp_tx(quat).unwrap();
-        }
-
-        cx.schedule
-            .poll_imu(cx.scheduled + PERIOD.cycles())
-            .unwrap();
     }
 
     #[task(resources = [vcp_tx_buf, serial])]
@@ -257,6 +256,35 @@ const APP: () = {
         let mut buf = [0u8; 32];
         if cx.resources.serial.read(&mut buf[..]).is_ok() {
             cortex_m::asm::nop();
+        }
+    }
+
+    #[task(resources = [imu, delay, rgb_led], spawn = [vcp_tx], capacity = 2)]
+    fn poll_imu(mut cx: poll_imu::Context) {
+        if let I2cOrImu::Imu(imu) = &mut cx.resources.imu {
+            if let Some(quat) = imu.quaternion(cx.resources.delay).unwrap() {
+                cx.resources.rgb_led.toggle(LedColor::Green);
+                cx.spawn.vcp_tx(quat).unwrap();
+            }
+        }
+    }
+
+    #[task(binds = EXTI3, resources = [delay, imu, imu_int_pin], spawn = [poll_imu])]
+    fn imu_interrupt(cx: imu_interrupt::Context) {
+        let int_pin = cx.resources.imu_int_pin;
+
+        if int_pin.check_interrupt() {
+            int_pin.clear_interrupt_pending_bit();
+
+            // Initialize the IMU if it just booted up
+            if let I2cOrImu::I2c(_) = cx.resources.imu {
+                defmt::info!("BNO08x booted, initializing...");
+                cx.resources
+                    .imu
+                    .init_imu(cx.resources.delay, IMU_REPORTING_INTERVAL_MS);
+            } else {
+                cx.spawn.poll_imu().unwrap();
+            }
         }
     }
 
@@ -295,6 +323,22 @@ unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
     blue_led.set_high().unwrap();
 
     cortex_m::asm::udf();
+}
+
+/// RGB LED flashing for startup.
+fn startup_animate(rgb: &mut Rgb, delay: &mut impl DelayMs<u32>) {
+    rgb.set(LedColor::Red, false);
+    rgb.set(LedColor::Green, false);
+    rgb.set(LedColor::Blue, false);
+
+    for i in 0..8 {
+        rgb.toggle(if i % 2 == 0 {
+            LedColor::Blue
+        } else {
+            LedColor::Green
+        });
+        delay.delay_ms(50);
+    }
 }
 
 pub mod write_to {
