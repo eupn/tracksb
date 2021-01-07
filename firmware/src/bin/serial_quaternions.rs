@@ -109,7 +109,7 @@ const APP: () = {
                 p: Some(3),
             })
             .usb_src(UsbClkSrc::PllQ)
-            //.rtc_src(RtcClkSrc::Lse)
+            .rtc_src(RtcClkSrc::Lse)
             .rf_wkp_sel(RfWakeupClock::Lse);
 
         let mut rcc = rcc.apply_clock_config(clock_config, &mut dp.FLASH.constrain().acr);
