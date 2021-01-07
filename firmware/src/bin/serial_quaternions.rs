@@ -44,6 +44,7 @@ const PERIOD: u32 = 64_000_000 / IMU_REPORTING_RATE_HZ as u32;
 type RedLedPin = PA4<Output<PushPull>>;
 type GreenLedPin = PA5<Output<PushPull>>;
 type BlueLedPin = PA6<Output<PushPull>>;
+type Rgb = RgbLed<RedLedPin, GreenLedPin, BlueLedPin>;
 
 #[app(device = stm32wb_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -57,7 +58,7 @@ const APP: () = {
 
         vcp_tx_buf: [u8; VCP_TX_BUFFER_SIZE],
 
-        rgb_led: RgbLed<RedLedPin, GreenLedPin, BlueLedPin>,
+        rgb_led: Rgb,
     }
 
     #[init(schedule = [poll_imu])]
@@ -117,6 +118,25 @@ const APP: () = {
         let mut gpioa = dp.GPIOA.split(&mut rcc);
         let mut gpiob = dp.GPIOB.split(&mut rcc);
         let mut delay = hal::delay::DelayCM::new(rcc.clocks);
+
+        let red_led = gpioa.pa4.into_push_pull_output_with_state(
+            &mut gpioa.moder,
+            &mut gpioa.otyper,
+            State::High,
+        );
+        let green_led = gpioa.pa5.into_push_pull_output_with_state(
+            &mut gpioa.moder,
+            &mut gpioa.otyper,
+            State::High,
+        );
+        let blue_led = gpioa.pa6.into_push_pull_output_with_state(
+            &mut gpioa.moder,
+            &mut gpioa.otyper,
+            State::High,
+        );
+        let mut rgb_led = RgbLed::new(red_led, green_led, blue_led);
+
+        startup_animate(&mut rgb_led, &mut delay);
 
         let usb = Peripheral {
             usb: dp.USB,
@@ -304,6 +324,22 @@ unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
     blue_led.set_high().unwrap();
 
     cortex_m::asm::udf();
+}
+
+/// RGB LED flashing for startup.
+fn startup_animate(rgb: &mut Rgb, delay: &mut impl DelayMs<u32>) {
+    rgb.set(LedColor::Red, false);
+    rgb.set(LedColor::Green, false);
+    rgb.set(LedColor::Blue, false);
+
+    for i in 0..8 {
+        rgb.toggle(if i % 2 == 0 {
+            LedColor::Blue
+        } else {
+            LedColor::Green
+        });
+        delay.delay_ms(50);
+    }
 }
 
 pub mod write_to {
