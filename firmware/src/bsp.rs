@@ -4,7 +4,7 @@ use cortex_m::peripheral::NVIC;
 use stm32wb_hal::{
     gpio::{
         gpioa::PA7,
-        gpiob::{PB1, PB3, PB4, PB6, PB7},
+        gpiob::{PB3, PB4, PB6, PB7},
         Alternate, Edge, ExtiPin, Input, OpenDrain, Output, PullUp, AF4,
     },
     i2c::I2c,
