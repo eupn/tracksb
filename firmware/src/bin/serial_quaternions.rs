@@ -66,7 +66,16 @@ const APP: () = {
 
         defmt::info!("Initializing");
 
-        let dp = cx.device;
+        let mut dp = cx.device;
+
+        // Allow using debugger and RTT during WFI/WFE (sleep)
+        dp.DBGMCU.cr.modify(|_, w| {
+            w.dbg_sleep().set_bit();
+            w.dbg_standby().set_bit();
+            w.dbg_stop().set_bit()
+        });
+        dp.RCC.ahb1enr.modify(|_, w| w.dma1en().set_bit());
+
         let mut rcc: Rcc = dp.RCC.constrain();
         rcc.set_stop_wakeup_clock(StopWakeupClock::MSI);
 
