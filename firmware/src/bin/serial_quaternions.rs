@@ -28,7 +28,7 @@ use hal::{
 use rtic::{app, export::DWT};
 use tracksb::{
     bsp,
-    bsp::ImuIntPin,
+    bsp::{ImuIntPin, PmicIntPin},
     imu::I2cOrImu,
     pmic,
     pmic::{Pmic, PmicBuilder},
@@ -54,6 +54,7 @@ const APP: () = {
         serial: SerialPort<'static, UsbBusType>,
 
         pmic: Pmic<pmic::Initialized, hal::i2c::Error, bsp::PmicI2c>,
+        pmic_int_pin: PmicIntPin,
         imu: I2cOrImu<hal::i2c::Error, bsp::ImuI2c>,
         imu_int_pin: ImuIntPin,
         delay: DelayCM,
@@ -158,6 +159,13 @@ const APP: () = {
             .build();
 
         /* PMIC */
+        let pmic_int_pin = bsp::init_pmic_interrupt(
+            gpiob
+                .pb1
+                .into_pull_up_input(&mut gpiob.moder, &mut gpiob.pupdr),
+            &mut dp.SYSCFG,
+            &mut dp.EXTI,
+        );
         // I2C pull-ups are controlled via pin
         let mut pull_ups = gpiob
             .pb5
@@ -218,6 +226,7 @@ const APP: () = {
             usb_dev,
             serial,
             pmic,
+            pmic_int_pin,
             imu,
             imu_int_pin,
             delay,
@@ -285,6 +294,16 @@ const APP: () = {
             } else {
                 cx.spawn.poll_imu().unwrap();
             }
+        }
+    }
+
+    #[task(binds = EXTI1, resources = [pmic_int_pin, pmic])]
+    fn pmic_interrupt(cx: pmic_interrupt::Context) {
+        let int_pin = cx.resources.pmic_int_pin;
+
+        if int_pin.check_interrupt() {
+            int_pin.clear_interrupt_pending_bit();
+            cx.resources.pmic.process_irqs().unwrap();
         }
     }
 

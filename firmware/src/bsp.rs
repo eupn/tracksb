@@ -4,7 +4,7 @@ use cortex_m::peripheral::NVIC;
 use stm32wb_hal::{
     gpio::{
         gpioa::PA7,
-        gpiob::{PB3, PB4, PB6, PB7},
+        gpiob::{PB1, PB3, PB4, PB6, PB7},
         Alternate, Edge, ExtiPin, Input, OpenDrain, Output, PullUp, AF4,
     },
     i2c::I2c,
@@ -18,6 +18,23 @@ pub type PmicI2c = I2c<
         PB7<Alternate<AF4, Output<OpenDrain>>>,
     ),
 >;
+
+pub type PmicIntPin = PB1<Input<PullUp>>;
+
+pub fn init_pmic_interrupt(
+    mut pmic_int_pin: PmicIntPin,
+    syscfg: &mut SYSCFG,
+    exti: &mut EXTI,
+) -> PmicIntPin {
+    pmic_int_pin.make_interrupt_source(syscfg);
+    pmic_int_pin.trigger_on_edge(exti, Edge::FALLING);
+    pmic_int_pin.enable_interrupt(exti);
+    unsafe {
+        NVIC::unmask(Interrupt::EXTI1);
+    }
+
+    pmic_int_pin
+}
 
 pub type ImuI2c = I2c<
     I2C3,
