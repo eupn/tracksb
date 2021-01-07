@@ -40,9 +40,14 @@ for board flashing and debugging via RTT logging.
 
 - [x] Stream quaternions via USB virtual serial port
 - [ ] Validate and fix IMU axes and quaternion data
-- [ ] Fancy PWM for RGB LED instead of simple on/off
-- [ ] Use interrupts for PMIC and IMU interaction
+- [ ] Use interrupts for communication with PMIC and IMU
+  - [x] Poll IMU via interrupt
+  - [ ] Use interrupt for PMIC status updates (charging, button, etc.)
+- [ ] Flash RGB LED instead of simple on/off
+  - [x] Simple flash
+  - [ ] PWM effects
 - [ ] Use `async/.await`, especially for BLE
 - [ ] Integrate with BLE support from [stm32wb55](https://github.com/eupn/stm32wb55) crate
   - [ ] Create a simple GATT service for rotation quaternions streaming
 - [ ] Optimize power consumption and low-power modes
+  - [x] Fix debugging/RTT in sleep mode
