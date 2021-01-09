@@ -82,4 +82,11 @@ impl<
         let new_state = *state;
         self.set(led, new_state);
     }
+
+    /// Turns all of the color LEDs off.
+    pub fn turn_off_all(&mut self) {
+        self.set(LedColor::Red, false);
+        self.set(LedColor::Green, false);
+        self.set(LedColor::Blue, false);
+    }
 }
