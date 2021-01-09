@@ -7,7 +7,7 @@ version = "0.1.0"
 
 [dependencies]
 axp173 = "0.1"
-bno080 = { path = "../../bno080" }
+bno080 = { git = "https://github.com/eupn/bno080.git" }
 cortex-m = { version = "0.6.4" }
 cortex-m-rt = "0.6.13"
 cortex-m-rtic = "0.5"

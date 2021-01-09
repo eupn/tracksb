@@ -3,9 +3,9 @@
 use cortex_m::peripheral::NVIC;
 use stm32wb_hal::{
     gpio::{
-        gpioa::PA7,
+        gpioa::{PA15, PA7},
         gpiob::{PB1, PB3, PB4, PB6, PB7},
-        Alternate, Edge, ExtiPin, Input, OpenDrain, Output, PullUp, AF4,
+        Alternate, Edge, ExtiPin, Input, OpenDrain, Output, PullUp, PushPull, AF4,
     },
     i2c::I2c,
     pac::{Interrupt, EXTI, I2C1, I2C3, SYSCFG},
@@ -45,6 +45,7 @@ pub type ImuI2c = I2c<
 >;
 
 pub type ImuIntPin = PB3<Input<PullUp>>;
+pub type ImuResetPin = PA15<Output<PushPull>>;
 
 pub fn init_imu_interrupt(
     mut imu_int_pin: ImuIntPin,

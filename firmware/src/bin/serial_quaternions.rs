@@ -31,7 +31,7 @@ use tracksb::{
     bsp::{ImuIntPin, PmicIntPin},
     imu::I2cOrImu,
     pmic,
-    pmic::{Pmic, PmicBuilder},
+    pmic::{ImuPowerState, Pmic, PmicBuilder},
     rgbled::{LedColor, RgbLed},
 };
 use usb_device::{bus, device::UsbDevice, prelude::*};
@@ -55,7 +55,7 @@ const APP: () = {
 
         pmic: Pmic<pmic::Initialized, hal::i2c::Error, bsp::PmicI2c>,
         pmic_int_pin: PmicIntPin,
-        imu: I2cOrImu<hal::i2c::Error, bsp::ImuI2c>,
+        imu: I2cOrImu<hal::i2c::Error, bsp::ImuI2c, bsp::ImuResetPin>,
         imu_int_pin: ImuIntPin,
         delay: DelayCM,
 
@@ -214,7 +214,7 @@ const APP: () = {
         let sda = sda.into_af4(&mut gpiob.moder, &mut gpiob.afrl);
         let i2c3 = I2c::i2c3(dp.I2C3, (scl, sda), 100.khz(), &mut rcc);
 
-        let imu = I2cOrImu::I2c(i2c3);
+        let imu = I2cOrImu::I2c(i2c3, imu_rst);
 
         defmt::info!(
             "Initialized MCU at {:u32} MHz and IMU at {:u16} Hz",
@@ -270,7 +270,7 @@ const APP: () = {
 
     #[task(resources = [imu, delay, rgb_led], spawn = [vcp_tx], capacity = 2)]
     fn poll_imu(mut cx: poll_imu::Context) {
-        if let I2cOrImu::Imu(imu) = &mut cx.resources.imu {
+        if let I2cOrImu::Imu(imu, ..) = &mut cx.resources.imu {
             if let Some(quat) = imu.quaternion(cx.resources.delay).unwrap() {
                 cx.resources.rgb_led.toggle(LedColor::Green);
                 cx.spawn.vcp_tx(quat).unwrap();
@@ -278,15 +278,20 @@ const APP: () = {
         }
     }
 
-    #[task(binds = EXTI3, resources = [delay, imu, imu_int_pin], spawn = [poll_imu])]
+    #[task(binds = EXTI3, resources = [delay, imu, imu_int_pin, pmic], spawn = [poll_imu])]
     fn imu_interrupt(cx: imu_interrupt::Context) {
         let int_pin = cx.resources.imu_int_pin;
 
         if int_pin.check_interrupt() {
             int_pin.clear_interrupt_pending_bit();
 
+            // Ignore interrupts if IMU isn't enabled
+            if !cx.resources.pmic.imu_enabled().unwrap() {
+                return;
+            }
+
             // Initialize the IMU if it just booted up
-            if let I2cOrImu::I2c(_) = cx.resources.imu {
+            if let I2cOrImu::I2c(_, _) = cx.resources.imu {
                 defmt::info!("BNO08x booted, initializing...");
                 cx.resources
                     .imu
@@ -297,13 +302,38 @@ const APP: () = {
         }
     }
 
-    #[task(binds = EXTI1, resources = [pmic_int_pin, pmic])]
+    #[task(binds = EXTI1, resources = [pmic_int_pin, pmic, imu, delay], spawn = [imu_on_off])]
     fn pmic_interrupt(cx: pmic_interrupt::Context) {
         let int_pin = cx.resources.pmic_int_pin;
 
         if int_pin.check_interrupt() {
             int_pin.clear_interrupt_pending_bit();
-            cx.resources.pmic.process_irqs().unwrap();
+
+            // Process IRQs and manage IMU power if it was a power button IRQ
+            let imu_power_state = cx.resources.pmic.process_irqs().unwrap();
+            match imu_power_state {
+                ImuPowerState::Shutdown => cx.spawn.imu_on_off(false).unwrap(),
+                ImuPowerState::Enabled => cx.spawn.imu_on_off(true).unwrap(),
+                ImuPowerState::Unchanged => (),
+            }
+
+            cx.resources.pmic.show_current().unwrap();
+        }
+    }
+
+    #[task(resources = [imu, delay, rgb_led])]
+    fn imu_on_off(cx: imu_on_off::Context, turn_on: bool) {
+        if turn_on {
+            if let I2cOrImu::I2c(_, reset_pin) = cx.resources.imu {
+                // Power-on-reset the IMU
+                reset_pin.set_low().unwrap();
+                cx.resources.delay.delay_ms(100_u16);
+                reset_pin.set_high().unwrap();
+            }
+        } else {
+            cx.resources.imu.deinit();
+            cx.resources.rgb_led.turn_off_all();
+            // TODO: put the MCU into deep sleep
         }
     }
 

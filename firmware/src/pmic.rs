@@ -1,17 +1,26 @@
 //! Power Management IC (AXP173) routines
 
+use core::marker::PhantomData;
+
 use axp173::{
     AdcSampleRate, AdcSettings, Axp173, ChargingCurrent, Irq, Ldo, LdoKind, ShutdownLongPressTime,
     TsPinMode,
 };
-use core::marker::PhantomData;
 use embedded_hal::blocking::i2c::{Write, WriteRead};
 
 pub trait PmicState {}
 pub struct Created;
 pub struct Initialized;
+
 impl PmicState for Created {}
 impl PmicState for Initialized {}
+
+#[derive(Debug, Copy, Clone)]
+pub enum ImuPowerState {
+    Shutdown,
+    Enabled,
+    Unchanged,
+}
 
 pub struct Pmic<S: PmicState, E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> {
     axp173: Axp173<I>,
@@ -60,7 +69,7 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Creat
 
         self.axp173
             .set_shutdown_long_press_time(ShutdownLongPressTime::SEC_4)?;
-        self.axp173.set_shutdown_long_press(true)?;
+        self.axp173.set_shutdown_long_press(false)?;
 
         self.axp173.disable_ldo(&LdoKind::LDO4)?;
 
@@ -77,7 +86,7 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Creat
 
     /// Enables interesting IRQs from PMIC.
     fn enable_irqs(&mut self) -> Result<(), axp173::Error<E>> {
-        self.axp173.set_irq(axp173::Irq::ButtonShortPress, true)?;
+        self.axp173.set_irq(axp173::Irq::ButtonLongPress, true)?;
         self.axp173.set_irq(axp173::Irq::BatteryCharged, true)?;
         self.axp173.set_irq(axp173::Irq::LowBatteryWarning, true)?;
         self.axp173.set_irq(axp173::Irq::VbusPluggedIn, true)?;
@@ -99,11 +108,27 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Initi
         Ok(())
     }
 
+    pub fn imu_enabled(&mut self) -> Result<bool, axp173::Error<E>> {
+        Ok(self.axp173.read_ldo(LdoKind::LDO3)?.enabled())
+    }
+
     /// Called from PMIC IRQ pin ISR. Checks IRQ flags and clears pending IRQs.
-    pub fn process_irqs(&mut self) -> Result<(), axp173::Error<E>> {
-        if self.axp173.check_irq(Irq::ButtonShortPress)? {
-            self.axp173.clear_irq(Irq::ButtonShortPress)?;
-            defmt::info!("Button pressed");
+    pub fn process_irqs(&mut self) -> Result<ImuPowerState, axp173::Error<E>> {
+        let mut imu_power_state = ImuPowerState::Unchanged;
+
+        if self.axp173.check_irq(Irq::ButtonLongPress)? {
+            defmt::info!("Long press");
+            self.axp173.clear_irq(Irq::ButtonLongPress)?;
+
+            if self.imu_enabled()? {
+                defmt::info!("Shutting down");
+                self.set_imu_power(false)?;
+                imu_power_state = ImuPowerState::Shutdown;
+            } else {
+                defmt::info!("Turning on");
+                self.set_imu_power(true)?;
+                imu_power_state = ImuPowerState::Enabled;
+            }
         }
         if self.axp173.check_irq(Irq::BatteryCharged)? {
             self.axp173.clear_irq(Irq::BatteryCharged)?;
@@ -126,6 +151,17 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Initi
 
         // Clear other possible IRQs otherwise we can't rely on the IRQ pin
         self.axp173.clear_all_irq()?;
+
+        Ok(imu_power_state)
+    }
+
+    /// Shows battery discharge current for reference purposes.
+    pub fn show_current(&mut self) -> Result<(), axp173::Error<E>> {
+        let batt_discharge = self.axp173.batt_discharge_current()?;
+        defmt::info!(
+            "Batt current consumption: {:f32} mA",
+            batt_discharge.as_milliamps()
+        );
 
         Ok(())
     }
