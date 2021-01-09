@@ -21,37 +21,50 @@ impl ImuState for Initialized {}
 pub type Quaternion = [f32; 4];
 pub type ImuError<E> = WrapperError<bno080::Error<E, ()>>;
 
-/// Holds either initialized I2C bus or initialized IMU that consumes I2C bus.
+pub enum ImuOrBus<
+    E: core::fmt::Debug,
+    I: Sized + Read<Error = E> + WriteRead<Error = E> + Write<Error = E>,
+> {
+    I2c(I),
+    Imu(Imu<Initialized, E, I>),
+}
+
+/// Holds reset pin and either initialized I2C bus or initialized IMU that consumes I2C bus.
 /// Used to first initialize I2C bus and then wait for "boot" interrupt
 /// from the uninitialized IMU chip that will trigger the IMU initialization.
-// TODO: extract reset pin from the enum
-pub enum I2cOrImu<
+pub struct ImuWrapper<
     E: core::fmt::Debug,
     I: Sized + Read<Error = E> + WriteRead<Error = E> + Write<Error = E>,
     RST: OutputPin<Error = Infallible>,
 > {
-    I2c(I, RST),
-    Imu(Imu<Initialized, E, I>, RST),
+    reset_pin: RST,
+    inner: ImuOrBus<E, I>,
 }
 
 impl<
         E: core::fmt::Debug,
         I: Sized + Read<Error = E> + WriteRead<Error = E> + Write<Error = E>,
         RST: OutputPin<Error = Infallible>,
-    > I2cOrImu<E, I, RST>
+    > ImuWrapper<E, I, RST>
 {
+    pub fn new(i2c: I, reset_pin: RST) -> Self {
+        Self {
+            reset_pin,
+            inner: ImuOrBus::I2c(i2c),
+        }
+    }
+
     /// Call this from IMU's start-up interrupt handler to finish its initialization.
     /// It will internally convert itself from an I2C bus to an IMU that consumes it.
     pub fn init_imu(&mut self, delay: &mut impl DelayMs<u8>, interval_ms: u16) {
-        if let I2cOrImu::I2c(i2c, rst) = self {
+        if let ImuOrBus::I2c(i2c) = &mut self.inner {
             // Obtains an owned instance of an I2C that doesn't implement Copy
             let owned_i2c = unsafe { core::ptr::read(i2c) };
-            let owned_rst = unsafe { core::ptr::read(rst) };
 
             let imu = ImuBuilder::new(owned_i2c);
             let imu = imu.init(delay, interval_ms).unwrap();
 
-            *self = I2cOrImu::Imu(imu, owned_rst);
+            self.inner = ImuOrBus::Imu(imu);
         } else {
             // Shouldn't happen since each call to this function should prevent it from
             // being called again
@@ -61,16 +74,40 @@ impl<
 
     /// Call this to de-initialize the IMU and get an I2C port back.
     pub fn deinit(&mut self) {
-        if let I2cOrImu::Imu(imu, rst) = self {
+        if let ImuOrBus::Imu(imu) = &mut self.inner {
             // Obtains an owned instance of the IMU that doesn't implement Copy
             let owned_imu = unsafe { core::ptr::read(imu) };
-            let owned_rst = unsafe { core::ptr::read(rst) };
 
-            *self = I2cOrImu::I2c(owned_imu.bno.free().free(), owned_rst);
+            self.inner = ImuOrBus::I2c(owned_imu.bno.free().free());
         } else {
             // Shouldn't happen since each call to this function should prevent it from
             // being called again
             unreachable!()
+        }
+    }
+
+    pub fn reset_imu(&mut self, delay: &mut impl DelayMs<u8>) {
+        self.reset_pin.set_low().unwrap();
+        delay.delay_ms(100);
+        self.reset_pin.set_high().unwrap();
+    }
+
+    pub fn is_initialized(&self) -> bool {
+        if let ImuOrBus::Imu(_) = self.inner {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn quaternion(
+        &mut self,
+        delay: &mut impl DelayMs<u8>,
+    ) -> Result<Option<[f32; 4]>, ImuError<E>> {
+        if let ImuOrBus::Imu(imu) = &mut self.inner {
+            Ok(imu.quaternion(delay)?)
+        } else {
+            Ok(None)
         }
     }
 }

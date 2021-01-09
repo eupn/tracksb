@@ -29,7 +29,7 @@ use rtic::{app, export::DWT};
 use tracksb::{
     bsp,
     bsp::{ImuIntPin, PmicIntPin},
-    imu::I2cOrImu,
+    imu::ImuWrapper,
     pmic,
     pmic::{ImuPowerState, Pmic, PmicBuilder},
     rgbled::{LedColor, RgbLed},
@@ -39,7 +39,7 @@ use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
 const VCP_TX_BUFFER_SIZE: usize = 32;
 
-const IMU_REPORTING_RATE_HZ: u16 = 8;
+const IMU_REPORTING_RATE_HZ: u16 = 64;
 const IMU_REPORTING_INTERVAL_MS: u16 = 1000 / IMU_REPORTING_RATE_HZ;
 
 type RedLedPin = PA4<Output<PushPull>>;
@@ -55,7 +55,7 @@ const APP: () = {
 
         pmic: Pmic<pmic::Initialized, hal::i2c::Error, bsp::PmicI2c>,
         pmic_int_pin: PmicIntPin,
-        imu: I2cOrImu<hal::i2c::Error, bsp::ImuI2c, bsp::ImuResetPin>,
+        imu: ImuWrapper<hal::i2c::Error, bsp::ImuI2c, bsp::ImuResetPin>,
         imu_int_pin: ImuIntPin,
         delay: DelayCM,
 
@@ -214,7 +214,7 @@ const APP: () = {
         let sda = sda.into_af4(&mut gpiob.moder, &mut gpiob.afrl);
         let i2c3 = I2c::i2c3(dp.I2C3, (scl, sda), 100.khz(), &mut rcc);
 
-        let imu = I2cOrImu::I2c(i2c3, imu_rst);
+        let imu = ImuWrapper::new(i2c3, imu_rst);
 
         defmt::info!(
             "Initialized MCU at {:u32} MHz and IMU at {:u16} Hz",
@@ -235,7 +235,7 @@ const APP: () = {
         }
     }
 
-    #[task(resources = [vcp_tx_buf, serial])]
+    #[task(resources = [vcp_tx_buf, serial], capacity = 4)]
     fn vcp_tx(cx: vcp_tx::Context, quat: [f32; 4]) {
         let mut buf = [0u8; 128];
         let _s: &str = write_to::show(
@@ -269,12 +269,10 @@ const APP: () = {
     }
 
     #[task(resources = [imu, delay, rgb_led], spawn = [vcp_tx], capacity = 2)]
-    fn poll_imu(mut cx: poll_imu::Context) {
-        if let I2cOrImu::Imu(imu, ..) = &mut cx.resources.imu {
-            if let Some(quat) = imu.quaternion(cx.resources.delay).unwrap() {
-                cx.resources.rgb_led.toggle(LedColor::Green);
-                cx.spawn.vcp_tx(quat).unwrap();
-            }
+    fn poll_imu(cx: poll_imu::Context) {
+        if let Some(quat) = cx.resources.imu.quaternion(cx.resources.delay).unwrap() {
+            cx.resources.rgb_led.toggle(LedColor::Green);
+            cx.spawn.vcp_tx(quat).unwrap();
         }
     }
 
@@ -291,7 +289,7 @@ const APP: () = {
             }
 
             // Initialize the IMU if it just booted up
-            if let I2cOrImu::I2c(_, _) = cx.resources.imu {
+            if !cx.resources.imu.is_initialized() {
                 defmt::info!("BNO08x booted, initializing...");
                 cx.resources
                     .imu
@@ -324,11 +322,8 @@ const APP: () = {
     #[task(resources = [imu, delay, rgb_led])]
     fn imu_on_off(cx: imu_on_off::Context, turn_on: bool) {
         if turn_on {
-            if let I2cOrImu::I2c(_, reset_pin) = cx.resources.imu {
-                // Power-on-reset the IMU
-                reset_pin.set_low().unwrap();
-                cx.resources.delay.delay_ms(100_u16);
-                reset_pin.set_high().unwrap();
+            if !cx.resources.imu.is_initialized() {
+                cx.resources.imu.reset_imu(cx.resources.delay);
             }
         } else {
             cx.resources.imu.deinit();
