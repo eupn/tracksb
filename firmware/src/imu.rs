@@ -1,12 +1,15 @@
-use core::marker::PhantomData;
+use core::{convert::Infallible, marker::PhantomData};
 
 use bno080::{
     interface::I2cInterface,
     wrapper::{WrapperError, BNO080},
 };
-use embedded_hal::blocking::{
-    delay::DelayMs,
-    i2c::{Read, Write, WriteRead},
+use embedded_hal::{
+    blocking::{
+        delay::DelayMs,
+        i2c::{Read, Write, WriteRead},
+    },
+    digital::v2::OutputPin,
 };
 
 pub trait ImuState {}
