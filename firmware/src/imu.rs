@@ -103,7 +103,7 @@ impl<
     pub fn quaternion(
         &mut self,
         delay: &mut impl DelayMs<u8>,
-    ) -> Result<Option<[f32; 4]>, ImuError<E>> {
+    ) -> Result<Option<Quaternion>, ImuError<E>> {
         if let ImuOrBus::Imu(imu) = &mut self.inner {
             Ok(imu.quaternion(delay)?)
         } else {

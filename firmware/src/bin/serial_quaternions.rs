@@ -29,7 +29,7 @@ use rtic::{app, export::DWT};
 use tracksb::{
     bsp,
     bsp::{ImuIntPin, PmicIntPin},
-    imu::ImuWrapper,
+    imu::{ImuWrapper, Quaternion},
     pmic,
     pmic::{ImuPowerState, Pmic, PmicBuilder},
     rgbled::{LedColor, RgbLed},
@@ -236,7 +236,7 @@ const APP: () = {
     }
 
     #[task(resources = [vcp_tx_buf, serial], capacity = 4)]
-    fn vcp_tx(cx: vcp_tx::Context, quat: [f32; 4]) {
+    fn vcp_tx(cx: vcp_tx::Context, quat: Quaternion) {
         let mut buf = [0u8; 128];
         let _s: &str = write_to::show(
             &mut buf,
