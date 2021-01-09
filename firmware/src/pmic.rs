@@ -154,6 +154,17 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Initi
 
         Ok(imu_power_state)
     }
+
+    /// Shows battery discharge current for reference purposes.
+    pub fn show_current(&mut self) -> Result<(), axp173::Error<E>> {
+        let batt_discharge = self.axp173.batt_discharge_current()?;
+        defmt::info!(
+            "Batt current consumption: {:f32} mA",
+            batt_discharge.as_milliamps()
+        );
+
+        Ok(())
+    }
 }
 
 fn status<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>>(axp173: &mut Axp173<I>) {
