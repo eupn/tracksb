@@ -55,7 +55,7 @@ const APP: () = {
 
         pmic: Pmic<pmic::Initialized, hal::i2c::Error, bsp::PmicI2c>,
         pmic_int_pin: PmicIntPin,
-        imu: I2cOrImu<hal::i2c::Error, bsp::ImuI2c>,
+        imu: I2cOrImu<hal::i2c::Error, bsp::ImuI2c, bsp::ImuResetPin>,
         imu_int_pin: ImuIntPin,
         delay: DelayCM,
 
@@ -214,7 +214,7 @@ const APP: () = {
         let sda = sda.into_af4(&mut gpiob.moder, &mut gpiob.afrl);
         let i2c3 = I2c::i2c3(dp.I2C3, (scl, sda), 100.khz(), &mut rcc);
 
-        let imu = I2cOrImu::I2c(i2c3);
+        let imu = I2cOrImu::I2c(i2c3, imu_rst);
 
         defmt::info!(
             "Initialized MCU at {:u32} MHz and IMU at {:u16} Hz",
@@ -270,7 +270,7 @@ const APP: () = {
 
     #[task(resources = [imu, delay, rgb_led], spawn = [vcp_tx], capacity = 2)]
     fn poll_imu(mut cx: poll_imu::Context) {
-        if let I2cOrImu::Imu(imu) = &mut cx.resources.imu {
+        if let I2cOrImu::Imu(imu, ..) = &mut cx.resources.imu {
             if let Some(quat) = imu.quaternion(cx.resources.delay).unwrap() {
                 cx.resources.rgb_led.toggle(LedColor::Green);
                 cx.spawn.vcp_tx(quat).unwrap();
@@ -286,7 +286,7 @@ const APP: () = {
             int_pin.clear_interrupt_pending_bit();
 
             // Initialize the IMU if it just booted up
-            if let I2cOrImu::I2c(_) = cx.resources.imu {
+            if let I2cOrImu::I2c(_, _) = cx.resources.imu {
                 defmt::info!("BNO08x booted, initializing...");
                 cx.resources
                     .imu
