@@ -1,18 +1,27 @@
-use stm32wb55::gatt::{AddServiceParameters, CharacteristicHandle, Commands as GattCommands, ServiceHandle, ServiceType, Uuid, CharacteristicProperty, CharacteristicPermission, CharacteristicEvent, AddCharacteristicParameters, EncryptionKeySize, UpdateCharacteristicValueParameters};
-use stm32wb55::gap::{Commands as GapCommands, Role, DiscoverableParameters, LocalName, AdvertisingDataType, AddressType};
-use stm32wb55::hal::Commands as HalCommands;
-use bluetooth_hci::host::{EncryptionKey, OwnAddressType, AdvertisingFilterPolicy};
-use stm32wb55::hal::{ConfigData, PowerLevel};
-use bluetooth_hci::{BdAddr, Event, Status};
-use bluetooth_hci::event::command::{CommandComplete, ReturnParameters};
-use bluetooth_hci::types::AdvertisingType;
-use core::time::Duration;
-use embassy_stm32wb55::ble::{Ble, BleError};
-use stm32wb55::event::command::GattService;
-use stm32wb_hal::tl_mbox::lhci::LhciC1DeviceInformationCcrp;
-use stm32wb55::event::command::GattCharacteristic;
-use bluetooth_hci::host::uart::Packet;
 use crate::imu::Quaternion;
+use bluetooth_hci::{
+    event::command::ReturnParameters,
+    host::{uart::Packet, AdvertisingFilterPolicy, OwnAddressType},
+    types::AdvertisingType,
+    BdAddr, Event,
+};
+use core::time::Duration;
+use embassy_stm32wb55::ble::{Ble};
+use stm32wb55::{
+    event::command::{GattCharacteristic, GattService},
+    gap::{
+        AdvertisingDataType, Commands as GapCommands, DiscoverableParameters,
+        LocalName, Role,
+    },
+    gatt::{
+        AddCharacteristicParameters, AddServiceParameters, CharacteristicEvent,
+        CharacteristicHandle, CharacteristicPermission, CharacteristicProperty,
+        Commands as GattCommands, EncryptionKeySize, ServiceHandle, ServiceType,
+        UpdateCharacteristicValueParameters, Uuid,
+    },
+    hal::{Commands as HalCommands, ConfigData, PowerLevel},
+};
+use stm32wb_hal::tl_mbox::lhci::LhciC1DeviceInformationCcrp;
 
 /// Advertisement interval in milliseconds.
 const ADV_INTERVAL_MS: u64 = 250;
@@ -29,8 +38,8 @@ pub struct QuaternionsService {
 impl QuaternionsService {
     /// 0000fe40-cc7a-482a-984a7f2ed5b3e58f
     const UUID: Uuid = Uuid::Uuid128([
-        0x00, 0x00, 0xfe, 0x40, 0xcc, 0x7a, 0x48, 0x2a,
-        0x98, 0x4a, 0x7f, 0x2e, 0xd5, 0xb3, 0xe5, 0x8f,
+        0x00, 0x00, 0xfe, 0x40, 0xcc, 0x7a, 0x48, 0x2a, 0x98, 0x4a, 0x7f, 0x2e, 0xd5, 0xb3, 0xe5,
+        0x8f,
     ]);
 
     /// n = 1 for `QuaternionsService`
@@ -39,18 +48,27 @@ impl QuaternionsService {
     const MAX_ATTRIBUTE_RECORDS: usize = 8; // TODO: fix to appropriate value
 
     pub async fn new(ble: &mut Ble) -> Result<Self, crate::ble::BleError> {
-        let return_params = ble.perform_command(|rc| rc.add_service(&AddServiceParameters {
-            uuid: QuaternionsService::UUID,
-            service_type: ServiceType::Primary,
-            max_attribute_records: Self::MAX_ATTRIBUTE_RECORDS as u8,
-        })).await?;
+        let return_params = ble
+            .perform_command(|rc| {
+                rc.add_service(&AddServiceParameters {
+                    uuid: QuaternionsService::UUID,
+                    service_type: ServiceType::Primary,
+                    max_attribute_records: Self::MAX_ATTRIBUTE_RECORDS as u8,
+                })
+            })
+            .await?;
 
         let handle = if let ReturnParameters::Vendor(
-            stm32wb55::event::command::ReturnParameters::GattAddService(GattService { status: _, service_handle })) = return_params {
+            stm32wb55::event::command::ReturnParameters::GattAddService(GattService {
+                status: _,
+                service_handle,
+            }),
+        ) = return_params
+        {
             // TODO: check status
             service_handle
         } else {
-            return Err(crate::ble::BleError::UnexpectedEvent)
+            return Err(crate::ble::BleError::UnexpectedEvent);
         };
 
         let notify_char = QuaternionsCharacteristic::new(handle, ble).await?;
@@ -63,7 +81,11 @@ impl QuaternionsService {
         })
     }
 
-    pub async fn update(&mut self, ble: &mut Ble, quat: &Quaternion) -> Result<(), super::BleError> {
+    pub async fn update(
+        &mut self,
+        ble: &mut Ble,
+        quat: &Quaternion,
+    ) -> Result<(), super::BleError> {
         let binary_quat: QuaternionsCharacteristicValue = quat.into();
 
         ble.perform_command(|rc| {
@@ -74,9 +96,10 @@ impl QuaternionsService {
                 value: binary_quat.as_slice(),
             };
 
-            rc.update_characteristic_value(&params).map_err(|_| nb::Error::Other(()))
+            rc.update_characteristic_value(&params)
+                .map_err(|_| nb::Error::Other(()))
         })
-            .await?;
+        .await?;
 
         Ok(())
     }
@@ -90,36 +113,47 @@ pub struct QuaternionsCharacteristic {
 impl QuaternionsCharacteristic {
     /// 00000080-0001-11e1-ac36-0002a5d5c51b
     const UUID: Uuid = Uuid::Uuid128([
-        0x00, 0x00, 0x00, 0x80, 0x00, 0x01, 0x11, 0xe1,
-        0xac, 0x36, 0x00, 0x02, 0xa5, 0xd5, 0xc5, 0x1b,
+        0x00, 0x00, 0x00, 0x80, 0x00, 0x01, 0x11, 0xe1, 0xac, 0x36, 0x00, 0x02, 0xa5, 0xd5, 0xc5,
+        0x1b,
     ]);
 
-    pub async fn new(service_handle: ServiceHandle, ble: &mut Ble) -> Result<QuaternionsCharacteristic, super::BleError> {
-        let return_params = ble.perform_command(|rc| {
-            rc.add_characteristic(&AddCharacteristicParameters {
-                service_handle,
-                characteristic_uuid: Self::UUID,
-                characteristic_value_len: core::mem::size_of::<QuaternionsCharacteristicValue>(),
-                characteristic_properties: CharacteristicProperty::NOTIFY,
-                security_permissions: CharacteristicPermission::AUTHENTICATED_READ,
-                gatt_event_mask: CharacteristicEvent::ATTRIBUTE_WRITE,
-                encryption_key_size: EncryptionKeySize::with_value(10).expect("ec size"),
-                is_variable: true,
-                fw_version_before_v72: false,
+    pub async fn new(
+        service_handle: ServiceHandle,
+        ble: &mut Ble,
+    ) -> Result<QuaternionsCharacteristic, super::BleError> {
+        let return_params = ble
+            .perform_command(|rc| {
+                rc.add_characteristic(&AddCharacteristicParameters {
+                    service_handle,
+                    characteristic_uuid: Self::UUID,
+                    characteristic_value_len: core::mem::size_of::<QuaternionsCharacteristicValue>(
+                    ),
+                    characteristic_properties: CharacteristicProperty::NOTIFY,
+                    security_permissions: CharacteristicPermission::AUTHENTICATED_READ,
+                    gatt_event_mask: CharacteristicEvent::ATTRIBUTE_WRITE,
+                    encryption_key_size: EncryptionKeySize::with_value(10).expect("ec size"),
+                    is_variable: true,
+                    fw_version_before_v72: false,
+                })
             })
-        }).await?;
+            .await?;
 
         let handle = if let ReturnParameters::Vendor(
-            stm32wb55::event::command::ReturnParameters::GattAddCharacteristic(GattCharacteristic { status: _, characteristic_handle  })) = return_params {
+            stm32wb55::event::command::ReturnParameters::GattAddCharacteristic(
+                GattCharacteristic {
+                    status: _,
+                    characteristic_handle,
+                },
+            ),
+        ) = return_params
+        {
             // TODO: check status
             characteristic_handle
         } else {
-            return Err(crate::ble::BleError::UnexpectedEvent)
+            return Err(crate::ble::BleError::UnexpectedEvent);
         };
 
-        Ok(Self {
-            handle,
-        })
+        Ok(Self { handle })
     }
 }
 
@@ -137,9 +171,7 @@ impl QuaternionsCharacteristicValue {
         let len = core::mem::size_of::<Self>();
 
         // Safety: the struct has C ABI and packed
-        unsafe {
-            core::slice::from_raw_parts(self as *const Self as *const u8, len)
-        }
+        unsafe { core::slice::from_raw_parts(self as *const Self as *const u8, len) }
     }
 }
 
@@ -207,32 +239,36 @@ fn get_erk() -> EncryptionKey {
 */
 
 pub async fn init_gap_and_gatt(ble: &mut Ble) -> Result<(), super::BleError> {
-    ble.perform_command(|rc| rc.write_config_data(&ConfigData::public_address(get_bd_addr()).build()))
-        .await?;
+    ble.perform_command(|rc| {
+        rc.write_config_data(&ConfigData::public_address(get_bd_addr()).build())
+    })
+    .await?;
 
-    ble.perform_command(|rc| rc.write_config_data(&ConfigData::random_address(get_random_addr()).build()))
-        .await?;
+    ble.perform_command(|rc| {
+        rc.write_config_data(&ConfigData::random_address(get_random_addr()).build())
+    })
+    .await?;
 
     ble.perform_command(|rc| rc.set_tx_power_level(PowerLevel::ZerodBm))
         .await?;
     //
-    ble.perform_command(|rc| rc.init_gatt())
-        .await?;
+    ble.perform_command(|rc| rc.init_gatt()).await?;
 
-    let return_params = ble.perform_command(|rc| rc.init_gap(Role::PERIPHERAL, false, BLE_GAP_DEVICE_NAME.len() as u8))
+    let return_params = ble
+        .perform_command(|rc| rc.init_gap(Role::PERIPHERAL, false, BLE_GAP_DEVICE_NAME.len() as u8))
         .await?;
     let (service_handle, dev_name_handle, appearance_handle) = if let ReturnParameters::Vendor(
         stm32wb55::event::command::ReturnParameters::GapInit(stm32wb55::event::command::GapInit {
-                                                                 service_handle,
-                                                                 dev_name_handle,
-                                                                 appearance_handle,
-                                                                 ..
-                                                             }),
+            service_handle,
+            dev_name_handle,
+            appearance_handle,
+            ..
+        }),
     ) = return_params
     {
         (service_handle, dev_name_handle, appearance_handle)
     } else {
-        return Err(super::BleError::UnexpectedEvent)
+        return Err(super::BleError::UnexpectedEvent);
     };
 
     ble.perform_command(|rc| {
@@ -241,9 +277,10 @@ pub async fn init_gap_and_gatt(ble: &mut Ble) -> Result<(), super::BleError> {
             characteristic_handle: dev_name_handle,
             offset: 0,
             value: BLE_GAP_DEVICE_NAME,
-        }).map_err(|_| nb::Error::Other(()))
+        })
+        .map_err(|_| nb::Error::Other(()))
     })
-        .await?;
+    .await?;
 
     ble.perform_command(|rc| {
         rc.update_characteristic_value(&UpdateCharacteristicValueParameters {
@@ -251,9 +288,10 @@ pub async fn init_gap_and_gatt(ble: &mut Ble) -> Result<(), super::BleError> {
             characteristic_handle: appearance_handle,
             offset: 0,
             value: &[0],
-        }).map_err(|_| nb::Error::Other(()))
+        })
+        .map_err(|_| nb::Error::Other(()))
     })
-        .await?;
+    .await?;
 
     Ok(())
 }
@@ -277,9 +315,10 @@ pub async fn set_advertisement(enabled: bool, ble: &mut Ble) -> Result<(), super
 
             manufacturer_specific_data[8..(8 + addr.len())].copy_from_slice(&addr[..]);
 
-            rc.update_advertising_data(&manufacturer_specific_data[..]).map_err(|_| nb::Error::Other(()))
+            rc.update_advertising_data(&manufacturer_specific_data[..])
+                .map_err(|_| nb::Error::Other(()))
         })
-            .await?;
+        .await?;
 
         ble.perform_command(|rc| {
             let params = DiscoverableParameters {
@@ -295,12 +334,12 @@ pub async fn set_advertisement(enabled: bool, ble: &mut Ble) -> Result<(), super
                 conn_interval: (None, None),
             };
 
-            rc.set_discoverable(&params).map_err(|_| nb::Error::Other(()))
+            rc.set_discoverable(&params)
+                .map_err(|_| nb::Error::Other(()))
         })
-            .await?;
+        .await?;
     } else {
-        ble.perform_command(|rc| rc.set_nondiscoverable())
-            .await?;
+        ble.perform_command(|rc| rc.set_nondiscoverable()).await?;
     }
 
     Ok(())
@@ -323,7 +362,10 @@ pub async fn process_event(ble: &mut Ble) -> Result<(), super::BleError> {
             set_advertisement(true, ble).await?;
         }
 
-        _ => defmt::warn!("Unhandled event: {:?}", defmt::Debug2Format::<defmt::consts::U256>(&event)),
+        _ => defmt::warn!(
+            "Unhandled event: {:?}",
+            defmt::Debug2Format::<defmt::consts::U256>(&event)
+        ),
     }
 
     Ok(())

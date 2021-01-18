@@ -6,45 +6,27 @@
 
 use tracksb as _;
 
-use bluetooth_hci::{
-    event::command::ReturnParameters,
-    host::{AdvertisingFilterPolicy, EncryptionKey, Hci, OwnAddressType},
-    BdAddr,
-};
-use core::time::Duration;
 use cortex_m_rt::entry;
-use embassy::executor::{task, Executor};
-use embassy::util::{Forever, Signal};
-use embassy_stm32wb55::ble::{Ble, BleError};
-use embassy_stm32wb55::interrupt;
-use stm32wb55::event::Stm32Wb5xError;
-use stm32wb55::{
-    gap::{
-        AdvertisingDataType, AdvertisingType, Commands as GapCommands, DiscoverableParameters, Role,
-    },
-    gatt::{
-        CharacteristicHandle, Commands as GattCommads, ServiceHandle,
-        UpdateCharacteristicValueParameters,
-    },
-    hal::{Commands as HalCommands, ConfigData, PowerLevel},
+use embassy::{
+    executor::{task, Executor},
+    util::Forever,
 };
-use stm32wb_hal::flash::FlashExt;
-use stm32wb_hal::prelude::*;
-use stm32wb_hal::rcc::{
-    ApbDivider, Config, HDivider, HseDivider, PllConfig, PllSrc, RfWakeupClock, RtcClkSrc,
-    StopWakeupClock, SysClkSrc,
+use embassy_stm32wb55::{
+    ble::Ble,
+    interrupt,
 };
-use stm32wb_hal::tl_mbox::lhci::LhciC1DeviceInformationCcrp;
-use stm32wb_hal::tl_mbox::shci::ShciBleInitCmdParam;
-use stm32wb_hal::tl_mbox::TlMbox;
-use stm32wb_hal::{pwr, rtc, stm32};
-use tracksb::ble::service::QuaternionsService;
-
-use cortex_m::interrupt::Mutex;
-use core::cell::Cell;
+use stm32wb_hal::{
+    flash::FlashExt,
+    prelude::*,
+    pwr,
+    rcc::{
+        ApbDivider, Config, HDivider, HseDivider, PllConfig, PllSrc, RfWakeupClock, RtcClkSrc,
+        StopWakeupClock, SysClkSrc,
+    },
+    rtc, stm32,
+    tl_mbox::{shci::ShciBleInitCmdParam, TlMbox},
+};
 use tracksb::imu::Quaternion;
-
-static QUAT_SIG: Signal<Quaternion> = Signal::new();
 
 #[task]
 async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
@@ -121,19 +103,25 @@ async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
         mbox,
         ipcc,
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     defmt::info!("BLE Initialized");
 
-    tracksb::ble::service::init_gap_and_gatt(&mut ble).await.unwrap();
-    let mut service = tracksb::ble::service::QuaternionsService::new(&mut ble).await.unwrap();
+    tracksb::ble::service::init_gap_and_gatt(&mut ble)
+        .await
+        .unwrap();
+    let mut service = tracksb::ble::service::QuaternionsService::new(&mut ble)
+        .await
+        .unwrap();
 
     defmt::info!("Service Ready");
 
     let mut i = 0;
     loop {
-        tracksb::ble::service::process_event(&mut ble).await.unwrap();
+        tracksb::ble::service::process_event(&mut ble)
+            .await
+            .unwrap();
         let quat: Quaternion = [i as f32, i as f32, i as f32, i as f32];
         service.update(&mut ble, &quat).await.unwrap();
 
