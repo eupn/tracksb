@@ -6,13 +6,13 @@ use bluetooth_hci::{
     BdAddr, Event,
 };
 use core::time::Duration;
-use embassy_stm32wb55::ble::{Ble};
+use embassy_stm32wb55::ble::Ble;
 use stm32wb55::{
-    event::command::{GattCharacteristic, GattService},
-    gap::{
-        AdvertisingDataType, Commands as GapCommands, DiscoverableParameters,
-        LocalName, Role,
+    event::{
+        command::{GattCharacteristic, GattService},
+        AttExchangeMtuResponse, GattAttributeModified, Stm32Wb5xEvent,
     },
+    gap::{AdvertisingDataType, Commands as GapCommands, DiscoverableParameters, LocalName, Role},
     gatt::{
         AddCharacteristicParameters, AddServiceParameters, CharacteristicEvent,
         CharacteristicHandle, CharacteristicPermission, CharacteristicProperty,
@@ -352,7 +352,7 @@ pub async fn process_event(ble: &mut Ble) -> Result<(), super::BleError> {
             defmt::info!("Connection complete");
 
             // Start advertising again
-            set_advertisement(true, ble).await?;
+            set_advertisement(false, ble).await?;
         }
 
         Packet::Event(Event::DisconnectionComplete(_)) => {
@@ -360,6 +360,21 @@ pub async fn process_event(ble: &mut Ble) -> Result<(), super::BleError> {
 
             // Start advertising again
             set_advertisement(true, ble).await?;
+        }
+
+        Packet::Event(Event::Vendor(Stm32Wb5xEvent::AttExchangeMtuResponse(
+            AttExchangeMtuResponse {
+                conn_handle: _,
+                server_rx_mtu,
+            },
+        ))) => {
+            defmt::info!("Mtu changed to {:usize}", server_rx_mtu);
+        }
+
+        Packet::Event(Event::Vendor(Stm32Wb5xEvent::GattAttributeModified(
+            GattAttributeModified { .. },
+        ))) => {
+            defmt::info!("Gatt attribute modified");
         }
 
         _ => defmt::warn!(
