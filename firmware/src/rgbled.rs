@@ -2,7 +2,9 @@
 
 use embedded_hal::digital::v2::OutputPin;
 
+use crate::bsp::Rgb;
 use core::convert::Infallible;
+use embedded_hal::blocking::delay::DelayMs;
 
 // TODO: try PWM for RGB pins
 
@@ -88,5 +90,21 @@ impl<
         self.set(LedColor::Red, false);
         self.set(LedColor::Green, false);
         self.set(LedColor::Blue, false);
+    }
+}
+
+/// RGB LED flashing for startup.
+pub fn startup_animate(rgb: &mut Rgb, delay: &mut impl DelayMs<u32>) {
+    rgb.set(LedColor::Red, false);
+    rgb.set(LedColor::Green, false);
+    rgb.set(LedColor::Blue, false);
+
+    for i in 0..8 {
+        rgb.toggle(if i % 2 == 0 {
+            LedColor::Blue
+        } else {
+            LedColor::Green
+        });
+        delay.delay_ms(50);
     }
 }

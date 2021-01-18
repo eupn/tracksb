@@ -13,10 +13,7 @@ use embedded_hal::blocking::delay::DelayMs;
 use hal::{
     delay::DelayCM,
     flash::FlashExt,
-    gpio::{
-        gpioa::{PA4, PA5, PA6},
-        ExtiPin, Output, PushPull, State,
-    },
+    gpio::{ExtiPin, State},
     i2c::I2c,
     prelude::*,
     rcc::{
@@ -28,24 +25,16 @@ use hal::{
 use rtic::{app, export::DWT};
 use tracksb::{
     bsp,
-    bsp::{ImuIntPin, PmicIntPin},
-    imu::{ImuWrapper, Quaternion},
+    bsp::{ImuIntPin, PmicIntPin, Rgb},
+    imu::{ImuWrapper, Quaternion, IMU_REPORTING_INTERVAL_MS, IMU_REPORTING_RATE_HZ},
     pmic,
     pmic::{ImuPowerState, Pmic, PmicBuilder},
-    rgbled::{LedColor, RgbLed},
+    rgbled::{startup_animate, LedColor, RgbLed},
 };
 use usb_device::{bus, device::UsbDevice, prelude::*};
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
 const VCP_TX_BUFFER_SIZE: usize = 32;
-
-const IMU_REPORTING_RATE_HZ: u16 = 64;
-const IMU_REPORTING_INTERVAL_MS: u16 = 1000 / IMU_REPORTING_RATE_HZ;
-
-type RedLedPin = PA4<Output<PushPull>>;
-type GreenLedPin = PA5<Output<PushPull>>;
-type BlueLedPin = PA6<Output<PushPull>>;
-type Rgb = RgbLed<RedLedPin, GreenLedPin, BlueLedPin>;
 
 #[app(device = stm32wb_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -138,7 +127,6 @@ const APP: () = {
             State::High,
         );
         let mut rgb_led = RgbLed::new(red_led, green_led, blue_led);
-
         startup_animate(&mut rgb_led, &mut delay);
 
         let usb = Peripheral {
@@ -367,22 +355,6 @@ unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
     blue_led.set_high().unwrap();
 
     cortex_m::asm::udf();
-}
-
-/// RGB LED flashing for startup.
-fn startup_animate(rgb: &mut Rgb, delay: &mut impl DelayMs<u32>) {
-    rgb.set(LedColor::Red, false);
-    rgb.set(LedColor::Green, false);
-    rgb.set(LedColor::Blue, false);
-
-    for i in 0..8 {
-        rgb.toggle(if i % 2 == 0 {
-            LedColor::Blue
-        } else {
-            LedColor::Green
-        });
-        delay.delay_ms(50);
-    }
 }
 
 pub mod write_to {
