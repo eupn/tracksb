@@ -8,6 +8,7 @@ use stm32wb_hal as _; // memory layout
 
 use panic_probe as _;
 
+pub mod ble;
 pub mod bsp;
 pub mod imu;
 pub mod pmic;
