@@ -39,15 +39,24 @@ for board flashing and debugging via RTT logging.
 ##### Firmware TODO List
 
 - [x] Stream quaternions via USB virtual serial port
+  - [ ] Port to RTIC v6
 - [ ] Validate and fix IMU axes and quaternion data
 - [x] Use interrupts for communication with PMIC and IMU
   - [x] Poll IMU via interrupt
   - [x] Use interrupt for PMIC status updates (charging, button, etc.)
+- [ ] Bluetooth functionality
+  - [x] Integrate with BLE support from [stm32wb55](https://github.com/eupn/stm32wb55) crate
+      - Done with [`embassy`]
+  - [x] `async/.await` BLE
+  - [x] Quaternions over BLE
+    - [x] Simple GATT service with one characteristic
+    - [ ] Fix GATT service to work with ST's mobile app for testing
+  - [ ] Cleanup `static mut` and `unsafe` code
+    - [ ] Probably use/make an `async`-aware version of RTIC based on [`embassy`] executor?
 - [ ] Flash RGB LED instead of simple on/off
   - [x] Simple flash
   - [ ] PWM effects
-- [ ] Use `async/.await`, especially for BLE
-- [ ] Integrate with BLE support from [stm32wb55](https://github.com/eupn/stm32wb55) crate
-  - [ ] Create a simple GATT service for rotation quaternions streaming
 - [ ] Optimize power consumption and low-power modes
   - [x] Fix debugging/RTT in sleep mode
+
+[`embassy`]: https://github.com/eupn/embassy/tree/add-stm32wb55

@@ -12,6 +12,9 @@ use embedded_hal::{
     digital::v2::OutputPin,
 };
 
+pub const IMU_REPORTING_RATE_HZ: u16 = 10;
+pub const IMU_REPORTING_INTERVAL_MS: u16 = 1000 / IMU_REPORTING_RATE_HZ;
+
 pub trait ImuState {}
 pub struct Created;
 pub struct Initialized;
