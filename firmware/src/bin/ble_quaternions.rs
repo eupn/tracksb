@@ -9,7 +9,7 @@
 use tracksb as _;
 
 use core::cell::UnsafeCell;
-use cortex_m_rt::entry;
+use cortex_m_rt::{entry, exception, ExceptionFrame};
 use embassy::{
     executor::{task, Executor},
     util::{Forever, Signal},
@@ -334,4 +334,31 @@ fn EXTI3() {
             }
         }
     }
+}
+
+#[exception]
+#[allow(non_snake_case)]
+unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
+    // Turn the red led on and turn the others off
+    let mut rcc = Rcc {
+        clocks: Default::default(),
+        config: Default::default(),
+        rb: hal::pac::Peripherals::steal().RCC,
+    };
+    let mut gpioa = hal::pac::Peripherals::steal().GPIOA.split(&mut rcc);
+    let mut red_led = gpioa
+        .pa4
+        .into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
+    let mut green_led = gpioa
+        .pa5
+        .into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
+    let mut blue_led = gpioa
+        .pa6
+        .into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
+
+    red_led.set_low().unwrap();
+    green_led.set_high().unwrap();
+    blue_led.set_high().unwrap();
+
+    cortex_m::asm::udf();
 }
