@@ -1,0 +1,9 @@
+[package]
+name = "ble-quaternions-listener"
+version = "0.1.0"
+authors = ["Evgenii P. <eupn@protonmail.com>"]
+edition = "2018"
+
+[dependencies]
+btleplug = "0.5.5"
+byteorder = "1.4.2"

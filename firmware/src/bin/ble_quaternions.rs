@@ -1,4 +1,6 @@
-//! BLE Eddystone URL beacon example.
+//! Enables PMIC (AXP173), turns IMU (BNO080) on and starts to stream
+//! current board's position (rotation quaternions) via Bluetooth Low Energy (BLE).
+
 #![no_std]
 #![no_main]
 #![feature(trait_alias)]
@@ -7,7 +9,7 @@
 use tracksb as _;
 
 use core::cell::UnsafeCell;
-use cortex_m_rt::entry;
+use cortex_m_rt::{entry, exception, ExceptionFrame};
 use embassy::{
     executor::{task, Executor},
     util::{Forever, Signal},
@@ -37,6 +39,7 @@ use tracksb::{
     pmic::{Pmic, PmicBuilder},
     rgbled::{startup_animate, LedColor, RgbLed},
 };
+use stm32wb_hal::rcc::Rcc;
 
 struct SyncWrapper<T>(pub UnsafeCell<Option<T>>);
 impl<T> SyncWrapper<T> {
@@ -332,4 +335,31 @@ fn EXTI3() {
             }
         }
     }
+}
+
+#[exception]
+#[allow(non_snake_case)]
+unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
+    // Turn the red led on and turn the others off
+    let mut rcc = Rcc {
+        clocks: Default::default(),
+        config: Default::default(),
+        rb: hal::pac::Peripherals::steal().RCC,
+    };
+    let mut gpioa = hal::pac::Peripherals::steal().GPIOA.split(&mut rcc);
+    let mut red_led = gpioa
+        .pa4
+        .into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
+    let mut green_led = gpioa
+        .pa5
+        .into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
+    let mut blue_led = gpioa
+        .pa6
+        .into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
+
+    red_led.set_low().unwrap();
+    green_led.set_high().unwrap();
+    blue_led.set_high().unwrap();
+
+    cortex_m::asm::udf();
 }
