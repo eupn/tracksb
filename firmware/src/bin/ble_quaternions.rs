@@ -39,6 +39,7 @@ use tracksb::{
     pmic::{Pmic, PmicBuilder},
     rgbled::{startup_animate, LedColor, RgbLed},
 };
+use stm32wb_hal::rcc::Rcc;
 
 struct SyncWrapper<T>(pub UnsafeCell<Option<T>>);
 impl<T> SyncWrapper<T> {

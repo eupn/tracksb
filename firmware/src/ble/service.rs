@@ -22,6 +22,7 @@ use stm32wb55::{
     hal::{Commands as HalCommands, ConfigData, PowerLevel},
 };
 use stm32wb_hal::tl_mbox::lhci::LhciC1DeviceInformationCcrp;
+use bluetooth_hci::host::Hci;
 
 /// Advertisement interval in milliseconds.
 const ADV_INTERVAL_MS: u64 = 250;
@@ -36,10 +37,9 @@ pub struct QuaternionsService {
 }
 
 impl QuaternionsService {
-    /// 0000fe40-cc7a-482a-984a7f2ed5b3e58f
     const UUID: Uuid = Uuid::Uuid128([
-        0x00, 0x00, 0xfe, 0x40, 0xcc, 0x7a, 0x48, 0x2a, 0x98, 0x4a, 0x7f, 0x2e, 0xd5, 0xb3, 0xe5,
-        0x8f,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x11, 0xe1, 0x9a, 0xb4, 0x00, 0x02, 0xa5, 0xd5, 0xc5,
+        0x1b,
     ]);
 
     /// n = 1 for `QuaternionsService`
@@ -111,10 +111,9 @@ pub struct QuaternionsCharacteristic {
 }
 
 impl QuaternionsCharacteristic {
-    /// 00000080-0001-11e1-ac36-0002a5d5c51b
     const UUID: Uuid = Uuid::Uuid128([
-        0x00, 0x00, 0x00, 0x80, 0x00, 0x01, 0x11, 0xe1, 0xac, 0x36, 0x00, 0x02, 0xa5, 0xd5, 0xc5,
-        0x1b,
+        0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x11, 0xe1, 0xac, 0x36, 0x00, 0x02, 0xa5, 0xd5, 0xc5,
+        0x1b
     ]);
 
     pub async fn new(
@@ -298,27 +297,35 @@ pub async fn init_gap_and_gatt(ble: &mut Ble) -> Result<(), super::BleError> {
 
 pub async fn set_advertisement(enabled: bool, ble: &mut Ble) -> Result<(), super::BleError> {
     if enabled {
+        ble.perform_command(|rc| rc.le_set_scan_response_data(&[])
+            .map_err(|_| nb::Error::Other(())))
+            .await?;
+
+        ble.perform_command(|rc| rc.delete_ad_type(AdvertisingDataType::TxPowerLevel))
+            .await?;
+
+        ble.perform_command(|rc| rc.delete_ad_type(AdvertisingDataType::PeripheralConnectionInterval))
+            .await?;
+
         ble.perform_command(|rc| {
             let addr = get_bd_addr().0;
 
-            let mut manufacturer_specific_data = [0u8; 14];
-            manufacturer_specific_data[0] = 13;
-            manufacturer_specific_data[1] = AdvertisingDataType::ManufacturerSpecificData as u8;
+            let mut adv_data: [u8; 14] = [0; 14];
 
-            manufacturer_specific_data[2] = 0x01; // BlueST protocol version
-            manufacturer_specific_data[3] = 0x83; // P2PServer1
+            adv_data[0] = 13;
+            adv_data[1] = AdvertisingDataType::ManufacturerSpecificData as u8;
+            adv_data[2] = 0x01;
+            adv_data[3] = 0x02;
+            adv_data[4] = 0x00;
+            adv_data[5] = 0xE0;
+            adv_data[6] = 0x00;
+            adv_data[7] = 0x00;
+            adv_data[8..(8 + addr.len())].copy_from_slice(&addr[..]);
 
-            manufacturer_specific_data[4] = 0x00; // BlueST Feature Mask bits 24~31
-            manufacturer_specific_data[5] = 0x00; // BlueST Feature Mask bits 16~23
-            manufacturer_specific_data[6] = 0x00; // BlueST Feature Mask bits 8~15
-            manufacturer_specific_data[7] = 0x00; // BlueST Feature Mask bits 0~7
-
-            manufacturer_specific_data[8..(8 + addr.len())].copy_from_slice(&addr[..]);
-
-            rc.update_advertising_data(&manufacturer_specific_data[..])
+            rc.update_advertising_data(&adv_data[..])
                 .map_err(|_| nb::Error::Other(()))
         })
-        .await?;
+            .await?;
 
         ble.perform_command(|rc| {
             let params = DiscoverableParameters {
@@ -337,7 +344,7 @@ pub async fn set_advertisement(enabled: bool, ble: &mut Ble) -> Result<(), super
             rc.set_discoverable(&params)
                 .map_err(|_| nb::Error::Other(()))
         })
-        .await?;
+            .await?;
     } else {
         ble.perform_command(|rc| rc.set_nondiscoverable()).await?;
     }
