@@ -1,4 +1,6 @@
-//! BLE Eddystone URL beacon example.
+//! Enables PMIC (AXP173), turns IMU (BNO080) on and starts to stream
+//! current board's position (rotation quaternions) via Bluetooth Low Energy (BLE).
+
 #![no_std]
 #![no_main]
 #![feature(trait_alias)]
