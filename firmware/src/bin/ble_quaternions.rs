@@ -14,17 +14,19 @@ use embassy::{
     executor::{task, Executor},
     util::{Forever, Signal},
 };
-use embassy_stm32wb55::{ble::Ble, hal, interrupt};
+use embassy_stm32wb55::{ble::Ble, interrupt};
+use embedded_hal::blocking::delay::DelayMs;
 use stm32wb_hal::{
     delay::DelayCM,
     flash::FlashExt,
     gpio::{ExtiPin, State},
-    i2c::I2c,
+    i2c::{Error as I2cError, I2c},
     ipcc::Ipcc,
+    pac,
     prelude::*,
     pwr,
     rcc::{
-        ApbDivider, Config, HDivider, HseDivider, PllConfig, PllSrc, RfWakeupClock, RtcClkSrc,
+        ApbDivider, Config, HDivider, HseDivider, PllConfig, PllSrc, Rcc, RfWakeupClock, RtcClkSrc,
         StopWakeupClock, SysClkSrc,
     },
     rtc, stm32,
@@ -36,10 +38,9 @@ use tracksb::{
     bsp::{ImuIntPin, PmicIntPin, Rgb},
     imu::{ImuWrapper, Quaternion, IMU_REPORTING_INTERVAL_MS, IMU_REPORTING_RATE_HZ},
     pmic,
-    pmic::{Pmic, PmicBuilder},
+    pmic::{wait_init_pmic, ImuPowerState, Pmic},
     rgbled::{startup_animate, LedColor, RgbLed},
 };
-use stm32wb_hal::rcc::Rcc;
 
 struct SyncWrapper<T>(pub UnsafeCell<Option<T>>);
 impl<T> SyncWrapper<T> {
@@ -51,10 +52,9 @@ impl<T> SyncWrapper<T> {
 unsafe impl<T> Sync for SyncWrapper<T> {}
 
 static RGB: SyncWrapper<Rgb> = SyncWrapper::new_none();
-static PMIC: SyncWrapper<Pmic<pmic::Initialized, hal::i2c::Error, bsp::PmicI2c>> =
-    SyncWrapper::new_none();
+static PMIC: SyncWrapper<Pmic<pmic::Initialized, I2cError, bsp::PmicI2c>> = SyncWrapper::new_none();
 static PMIC_INT_PIN: SyncWrapper<PmicIntPin> = SyncWrapper::new_none();
-static IMU: SyncWrapper<ImuWrapper<hal::i2c::Error, bsp::ImuI2c, bsp::ImuResetPin>> =
+static IMU: SyncWrapper<ImuWrapper<I2cError, bsp::ImuI2c, bsp::ImuResetPin>> =
     SyncWrapper::new_none();
 static IMU_INT_PIN: SyncWrapper<ImuIntPin> = SyncWrapper::new_none();
 static DELAY: SyncWrapper<DelayCM> = SyncWrapper::new_none();
@@ -125,10 +125,10 @@ async fn run_main(mbox: TlMbox, ipcc: Ipcc) {
             }
             let service = unsafe { &mut *SERVICE.0.get() };
             if let Some(service) = service {
-                defmt::info!(
+                /*defmt::info!(
                     "Updating quaternion: {:?}",
                     defmt::Debug2Format::<defmt::consts::U128>(&quat)
-                );
+                );*/
                 service.update(ble, &quat).await.unwrap();
             }
         }
@@ -188,7 +188,7 @@ fn main() -> ! {
 
     let mut gpioa = dp.GPIOA.split(&mut rcc);
     let mut gpiob = dp.GPIOB.split(&mut rcc);
-    let mut delay = hal::delay::DelayCM::new(rcc.clocks);
+    let mut delay = DelayCM::new(rcc.clocks);
 
     let red_led = gpioa.pa4.into_push_pull_output_with_state(
         &mut gpioa.moder,
@@ -206,19 +206,8 @@ fn main() -> ! {
         State::High,
     );
     let mut rgb_led = RgbLed::new(red_led, green_led, blue_led);
-    startup_animate(&mut rgb_led, &mut delay);
-    unsafe { &mut *RGB.0.get() }.replace(rgb_led);
 
     /* PMIC */
-    let pmic_int_pin = bsp::init_pmic_interrupt(
-        gpiob
-            .pb1
-            .into_pull_up_input(&mut gpiob.moder, &mut gpiob.pupdr),
-        &mut dp.SYSCFG,
-        &mut dp.EXTI,
-    );
-
-    unsafe { &mut *PMIC_INT_PIN.0.get() }.replace(pmic_int_pin);
 
     // I2C pull-ups are controlled via pin
     let mut pull_ups = gpiob
@@ -235,12 +224,22 @@ fn main() -> ! {
     let scl = scl.into_af4(&mut gpiob.moder, &mut gpiob.afrl);
     let sda = sda.into_open_drain_output(&mut gpiob.moder, &mut gpiob.otyper);
     let sda = sda.into_af4(&mut gpiob.moder, &mut gpiob.afrl);
-    let i2c = I2c::i2c1(dp.I2C1, (scl, sda), 100.khz(), &mut rcc);
-    let pmic = PmicBuilder::new(i2c).unwrap();
-    let mut pmic = pmic.init().unwrap();
+    let mut pmic = wait_init_pmic(dp.I2C1, scl, sda, &mut rcc, &mut delay);
     pmic.set_imu_power(true).unwrap();
+    let pmic_int_pin = bsp::init_pmic_interrupt(
+        gpiob
+            .pb1
+            .into_pull_up_input(&mut gpiob.moder, &mut gpiob.pupdr),
+        &mut dp.SYSCFG,
+        &mut dp.EXTI,
+    );
+
+    unsafe { &mut *PMIC_INT_PIN.0.get() }.replace(pmic_int_pin);
+
+    startup_animate(&mut rgb_led, &mut delay);
 
     unsafe { &mut *PMIC.0.get() }.replace(pmic);
+    unsafe { &mut *RGB.0.get() }.replace(rgb_led);
 
     /* IMU */
 
@@ -290,7 +289,7 @@ fn main() -> ! {
     }
 }
 
-fn poll_imu(imu: &mut ImuWrapper<hal::i2c::Error, bsp::ImuI2c, bsp::ImuResetPin>) {
+fn poll_imu(imu: &mut ImuWrapper<I2cError, bsp::ImuI2c, bsp::ImuResetPin>) {
     let delay = unsafe { &mut *DELAY.0.get() };
     let rgb_led = unsafe { &mut *RGB.0.get() };
 
@@ -337,6 +336,55 @@ fn EXTI3() {
     }
 }
 
+fn imu_on_off(
+    imu: &mut ImuWrapper<I2cError, bsp::ImuI2c, bsp::ImuResetPin>,
+    delay: &mut impl DelayMs<u8>,
+    turn_on: bool,
+) {
+    if turn_on {
+        if !imu.is_initialized() {
+            imu.reset_imu(delay);
+        }
+    } else {
+        imu.deinit();
+        let rgb_led = unsafe { &mut *RGB.0.get() };
+        if let Some(rgb_led) = rgb_led {
+            rgb_led.turn_off_all();
+        }
+        // TODO: put the MCU into deep sleep
+    }
+}
+
+#[interrupt]
+#[allow(non_snake_case)]
+fn EXTI1() {
+    let int_pin = unsafe { &mut *PMIC_INT_PIN.0.get() };
+    if let Some(int_pin) = int_pin {
+        let pmic = unsafe { &mut *PMIC.0.get() };
+        if let Some(pmic) = pmic {
+            let imu = unsafe { &mut *IMU.0.get() };
+            if let Some(imu) = imu {
+                let delay = unsafe { &mut *DELAY.0.get() };
+                if let Some(delay) = delay {
+                    if int_pin.check_interrupt() {
+                        int_pin.clear_interrupt_pending_bit();
+
+                        // Process IRQs and manage IMU power if it was a power button IRQ
+                        let imu_power_state = pmic.process_irqs().unwrap();
+                        match imu_power_state {
+                            ImuPowerState::Shutdown => imu_on_off(imu, delay, false),
+                            ImuPowerState::Enabled => imu_on_off(imu, delay, true),
+                            ImuPowerState::Unchanged => (),
+                        }
+
+                        pmic.show_current().unwrap();
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[exception]
 #[allow(non_snake_case)]
 unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
@@ -344,9 +392,9 @@ unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
     let mut rcc = Rcc {
         clocks: Default::default(),
         config: Default::default(),
-        rb: hal::pac::Peripherals::steal().RCC,
+        rb: pac::Peripherals::steal().RCC,
     };
-    let mut gpioa = hal::pac::Peripherals::steal().GPIOA.split(&mut rcc);
+    let mut gpioa = pac::Peripherals::steal().GPIOA.split(&mut rcc);
     let mut red_led = gpioa
         .pa4
         .into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);

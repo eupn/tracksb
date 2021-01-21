@@ -1,12 +1,20 @@
 //! Power Management IC (AXP173) routines
 
 use core::marker::PhantomData;
-
+use crate::bsp;
 use axp173::{
     AdcSampleRate, AdcSettings, Axp173, ChargingCurrent, Irq, Ldo, LdoKind, ShutdownLongPressTime,
     TsPinMode,
 };
-use embedded_hal::blocking::i2c::{Write, WriteRead};
+use embedded_hal::blocking::{
+    delay::DelayMs,
+    i2c::{Write, WriteRead},
+};
+use stm32wb_hal::{
+    i2c::{Error as I2cError, I2c},
+    rcc::Rcc,
+    time::U32Ext,
+};
 
 pub trait PmicState {}
 pub struct Created;
@@ -29,17 +37,32 @@ pub struct Pmic<S: PmicState, E: core::fmt::Debug, I: WriteRead<Error = E> + Wri
 
 pub struct PmicBuilder<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> {
     _e: PhantomData<E>,
-    _i: PhantomData<I>,
+    i2c: I,
 }
 
 impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> PmicBuilder<E, I> {
-    pub fn new(i2c: I) -> Result<Pmic<Created, E, I>, axp173::Error<E>> {
-        let axp173 = Axp173::new(i2c);
+    pub fn new(i2c: I) -> Self {
+        Self {
+            _e: PhantomData,
+            i2c,
+        }
+    }
 
-        Ok(Pmic {
+    pub fn free(self) -> I {
+        self.i2c
+    }
+
+    pub fn check(&mut self) -> bool {
+        Axp173::check(&mut self.i2c)
+    }
+
+    pub fn build(self) -> Pmic<Created, E, I> {
+        let axp173 = Axp173::new(self.i2c);
+
+        Pmic {
             axp173,
             _s: PhantomData,
-        })
+        }
     }
 }
 
@@ -165,6 +188,38 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Initi
 
         Ok(())
     }
+}
+
+// TODO: refactor waiting for PMIC turn-on via button
+// TODO: probe PWROK signal available in revision D.
+/// Waits for PMIC to power on.
+/// On the very first power-on the PMIC is shutdown by default.
+/// The long button press will power on the PMIC and it will become available on I2C.
+pub fn wait_init_pmic(
+    mut i2c1: bsp::PmicI2cPort,
+    mut scl: bsp::PmicI2cSclPin,
+    mut sda: bsp::PmicI2cSdaPin,
+    rcc: &mut Rcc,
+    delay: &mut impl DelayMs<u8>,
+) -> Pmic<Initialized, I2cError, bsp::PmicI2c> {
+    loop {
+        let i2c = I2c::i2c1(i2c1, (scl, sda), 100.khz(), rcc);
+
+        let mut pmic = PmicBuilder::new(i2c);
+        let pmic_check = pmic.check();
+
+        if pmic_check {
+            break pmic.build();
+        } else {
+            delay.delay_ms(100_u8);
+        }
+        let (i2c, (scl_pin, sda_pin)) = pmic.free().free();
+        i2c1 = i2c;
+        scl = scl_pin;
+        sda = sda_pin;
+    }
+    .init()
+    .unwrap()
 }
 
 fn status<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>>(axp173: &mut Axp173<I>) {
