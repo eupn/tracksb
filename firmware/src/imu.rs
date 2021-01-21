@@ -64,7 +64,7 @@ impl<
             // Obtains an owned instance of an I2C that doesn't implement Copy
             let owned_i2c = unsafe { core::ptr::read(i2c) };
 
-            let imu = ImuBuilder::new(owned_i2c);
+            let imu = ImuBuilder::create(owned_i2c);
             let imu = imu.init(delay, interval_ms).unwrap();
 
             self.inner = ImuOrBus::Imu(imu);
@@ -96,11 +96,7 @@ impl<
     }
 
     pub fn is_initialized(&self) -> bool {
-        if let ImuOrBus::Imu(_) = self.inner {
-            true
-        } else {
-            false
-        }
+        matches!(self.inner, ImuOrBus::Imu(_))
     }
 
     pub fn quaternion(
@@ -135,7 +131,7 @@ pub struct ImuBuilder<
 impl<E: core::fmt::Debug, I: Read<Error = E> + WriteRead<Error = E> + Write<Error = E>>
     ImuBuilder<E, I>
 {
-    pub fn new(i2c: I) -> Imu<Created, E, I> {
+    pub fn create(i2c: I) -> Imu<Created, E, I> {
         let i2c_interface = I2cInterface::default(i2c);
         let imu_driver = BNO080::new_with_interface(i2c_interface);
 
