@@ -78,7 +78,7 @@ pub fn main() {
         let z = rdr.read_f32::<LittleEndian>().unwrap();
         let w = rdr.read_f32::<LittleEndian>().unwrap();
 
-        let log_line = format!("{} {} {} {}\n", w, x, y, z);
+        let log_line = format!("{} {} {} {}\n", x, y, z, w);
         let mut log_file = log_file.lock().unwrap();
         log_file.write_all(log_line.as_bytes()).unwrap();
         log_file.flush().unwrap();
