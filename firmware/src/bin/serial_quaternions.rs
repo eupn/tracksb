@@ -28,11 +28,12 @@ use tracksb::{
     bsp::{ImuIntPin, PmicIntPin, Rgb},
     imu::{ImuWrapper, Quaternion, IMU_REPORTING_INTERVAL_MS, IMU_REPORTING_RATE_HZ},
     pmic,
-    pmic::{ImuPowerState, Pmic, PmicBuilder},
+    pmic::{ImuPowerState, Pmic},
     rgbled::{startup_animate, LedColor, RgbLed},
 };
 use usb_device::{bus, device::UsbDevice, prelude::*};
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
+use tracksb::pmic::wait_init_pmic;
 
 const VCP_TX_BUFFER_SIZE: usize = 32;
 
@@ -147,13 +148,7 @@ const APP: () = {
             .build();
 
         /* PMIC */
-        let pmic_int_pin = bsp::init_pmic_interrupt(
-            gpiob
-                .pb1
-                .into_pull_up_input(&mut gpiob.moder, &mut gpiob.pupdr),
-            &mut dp.SYSCFG,
-            &mut dp.EXTI,
-        );
+
         // I2C pull-ups are controlled via pin
         let mut pull_ups = gpiob
             .pb5
@@ -169,10 +164,15 @@ const APP: () = {
         let scl = scl.into_af4(&mut gpiob.moder, &mut gpiob.afrl);
         let sda = sda.into_open_drain_output(&mut gpiob.moder, &mut gpiob.otyper);
         let sda = sda.into_af4(&mut gpiob.moder, &mut gpiob.afrl);
-        let i2c = I2c::i2c1(dp.I2C1, (scl, sda), 100.khz(), &mut rcc);
-        let pmic = PmicBuilder::new(i2c).unwrap();
-        let mut pmic = pmic.init().unwrap();
+        let mut pmic = wait_init_pmic(dp.I2C1, scl, sda, &mut rcc, &mut delay, &mut rgb_led);
         pmic.set_imu_power(true).unwrap();
+        let pmic_int_pin = bsp::init_pmic_interrupt(
+            gpiob
+                .pb1
+                .into_pull_up_input(&mut gpiob.moder, &mut gpiob.pupdr),
+            &mut dp.SYSCFG,
+            &mut dp.EXTI,
+        );
 
         /* IMU */
 

@@ -17,13 +17,11 @@ pub type GreenLedPin = PA5<Output<PushPull>>;
 pub type BlueLedPin = PA6<Output<PushPull>>;
 pub type Rgb = RgbLed<RedLedPin, GreenLedPin, BlueLedPin>;
 
-pub type PmicI2c = I2c<
-    I2C1,
-    (
-        PB6<Alternate<AF4, Output<OpenDrain>>>,
-        PB7<Alternate<AF4, Output<OpenDrain>>>,
-    ),
->;
+pub type PmicI2cPort = I2C1;
+pub type PmicI2cSclPin = PB6<Alternate<AF4, Output<OpenDrain>>>;
+pub type PmicI2cSdaPin = PB7<Alternate<AF4, Output<OpenDrain>>>;
+
+pub type PmicI2c = I2c<PmicI2cPort, (PmicI2cSclPin, PmicI2cSdaPin)>;
 
 pub type PmicIntPin = PB1<Input<PullUp>>;
 
