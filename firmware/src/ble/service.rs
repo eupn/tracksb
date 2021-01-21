@@ -1,7 +1,7 @@
 use crate::imu::Quaternion;
 use bluetooth_hci::{
     event::command::ReturnParameters,
-    host::{uart::Packet, AdvertisingFilterPolicy, OwnAddressType},
+    host::{uart::Packet, AdvertisingFilterPolicy, Hci, OwnAddressType},
     types::AdvertisingType,
     BdAddr, Event,
 };
@@ -22,7 +22,6 @@ use stm32wb55::{
     hal::{Commands as HalCommands, ConfigData, PowerLevel},
 };
 use stm32wb_hal::tl_mbox::lhci::LhciC1DeviceInformationCcrp;
-use bluetooth_hci::host::Hci;
 
 /// Advertisement interval in milliseconds.
 const ADV_INTERVAL_MS: u64 = 250;
@@ -113,7 +112,7 @@ pub struct QuaternionsCharacteristic {
 impl QuaternionsCharacteristic {
     const UUID: Uuid = Uuid::Uuid128([
         0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x11, 0xe1, 0xac, 0x36, 0x00, 0x02, 0xa5, 0xd5, 0xc5,
-        0x1b
+        0x1b,
     ]);
 
     pub async fn new(
@@ -297,15 +296,19 @@ pub async fn init_gap_and_gatt(ble: &mut Ble) -> Result<(), super::BleError> {
 
 pub async fn set_advertisement(enabled: bool, ble: &mut Ble) -> Result<(), super::BleError> {
     if enabled {
-        ble.perform_command(|rc| rc.le_set_scan_response_data(&[])
-            .map_err(|_| nb::Error::Other(())))
-            .await?;
+        ble.perform_command(|rc| {
+            rc.le_set_scan_response_data(&[])
+                .map_err(|_| nb::Error::Other(()))
+        })
+        .await?;
 
         ble.perform_command(|rc| rc.delete_ad_type(AdvertisingDataType::TxPowerLevel))
             .await?;
 
-        ble.perform_command(|rc| rc.delete_ad_type(AdvertisingDataType::PeripheralConnectionInterval))
-            .await?;
+        ble.perform_command(|rc| {
+            rc.delete_ad_type(AdvertisingDataType::PeripheralConnectionInterval)
+        })
+        .await?;
 
         ble.perform_command(|rc| {
             let addr = get_bd_addr().0;
@@ -325,7 +328,7 @@ pub async fn set_advertisement(enabled: bool, ble: &mut Ble) -> Result<(), super
             rc.update_advertising_data(&adv_data[..])
                 .map_err(|_| nb::Error::Other(()))
         })
-            .await?;
+        .await?;
 
         ble.perform_command(|rc| {
             let params = DiscoverableParameters {
@@ -344,7 +347,7 @@ pub async fn set_advertisement(enabled: bool, ble: &mut Ble) -> Result<(), super
             rc.set_discoverable(&params)
                 .map_err(|_| nb::Error::Other(()))
         })
-            .await?;
+        .await?;
     } else {
         ble.perform_command(|rc| rc.set_nondiscoverable()).await?;
     }
