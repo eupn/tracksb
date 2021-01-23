@@ -50,12 +50,13 @@ for board flashing and debugging via RTT logging.
     - Powered by [`embassy`]
   - [x] BLE
     - [x] Stream quaternions via GATT service with one characteristic
-    - [ ] Battery service
+    - [x] Battery Level service
+    - [ ] Device Info Service
   - [ ] Cleanup `static mut` and `unsafe` code
-    - [ ] Probably use/make an `async`-aware version of RTIC based on [`embassy`] executor?
     - [ ] Use async mutex for shared resources
-- [ ] PMIC
-  - [ ] Implement battery gas gauge via built-in coulomb counters
+      - [`futures-intrusive`](https://crates.io/crates/futures-intrusive)?
+- [x] PMIC
+  - [x] Implement battery gas gauge via built-in coulomb counters
 - [ ] Flash RGB LED instead of simple on/off
   - [x] Simple flash
   - [ ] PWM effects
