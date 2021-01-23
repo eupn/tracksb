@@ -102,9 +102,7 @@ async fn run_main(mbox: TlMbox, ipcc: Ipcc) {
 
     defmt::info!("BLE Initialized");
 
-    tracksb::ble::service::init_gap_and_gatt(&mut ble)
-        .await
-        .unwrap();
+    tracksb::ble::init_gap_and_gatt(&mut ble).await.unwrap();
     let service = tracksb::ble::service::QuaternionsService::new(&mut ble)
         .await
         .unwrap();
@@ -121,7 +119,7 @@ async fn run_main(mbox: TlMbox, ipcc: Ipcc) {
         if let Some(ble) = ble {
             let quat = QUAT_SIGNAL.wait().await;
             if ble.has_events() {
-                tracksb::ble::service::process_event(ble).await.unwrap();
+                tracksb::ble::process_event(ble).await.unwrap();
             }
             let service = unsafe { &mut *SERVICE.0.get() };
             if let Some(service) = service {
