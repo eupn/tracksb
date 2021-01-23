@@ -28,12 +28,11 @@ use tracksb::{
     bsp::{ImuIntPin, PmicIntPin, Rgb},
     imu::{ImuWrapper, Quaternion, IMU_REPORTING_INTERVAL_MS, IMU_REPORTING_RATE_HZ},
     pmic,
-    pmic::{ImuPowerState, Pmic},
+    pmic::{wait_init_pmic, ImuPowerState, Pmic},
     rgbled::{startup_animate, LedColor, RgbLed},
 };
 use usb_device::{bus, device::UsbDevice, prelude::*};
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
-use tracksb::pmic::wait_init_pmic;
 
 const VCP_TX_BUFFER_SIZE: usize = 32;
 
@@ -164,7 +163,7 @@ const APP: () = {
         let scl = scl.into_af4(&mut gpiob.moder, &mut gpiob.afrl);
         let sda = sda.into_open_drain_output(&mut gpiob.moder, &mut gpiob.otyper);
         let sda = sda.into_af4(&mut gpiob.moder, &mut gpiob.afrl);
-        let mut pmic = wait_init_pmic(dp.I2C1, scl, sda, &mut rcc, &mut delay, &mut rgb_led);
+        let mut pmic = wait_init_pmic(dp.I2C1, scl, sda, &mut rcc, &mut delay);
         pmic.set_imu_power(true).unwrap();
         let pmic_int_pin = bsp::init_pmic_interrupt(
             gpiob
@@ -238,9 +237,7 @@ const APP: () = {
 
     #[task(binds = USB_HP, resources = [usb_dev, serial])]
     fn usb_tx(cx: usb_tx::Context) {
-        if !cx.resources.usb_dev.poll(&mut [cx.resources.serial]) {
-            return;
-        }
+        cx.resources.usb_dev.poll(&mut [cx.resources.serial]);
     }
 
     #[task(binds = USB_LP, resources = [usb_dev, serial])]
@@ -251,9 +248,7 @@ const APP: () = {
         }
 
         let mut buf = [0u8; 32];
-        if cx.resources.serial.read(&mut buf[..]).is_ok() {
-            cortex_m::asm::nop();
-        }
+        cx.resources.serial.read(&mut buf[..]).ok();
     }
 
     #[task(resources = [imu, delay, rgb_led], spawn = [vcp_tx], capacity = 2)]

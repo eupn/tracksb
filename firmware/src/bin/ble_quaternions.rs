@@ -33,7 +33,7 @@ use stm32wb_hal::{
     tl_mbox::{shci::ShciBleInitCmdParam, TlMbox},
 };
 use tracksb::{
-    ble::service::QuaternionsService,
+    ble::{batt_service::BatteryService, service::QuaternionsService},
     bsp,
     bsp::{ImuIntPin, PmicIntPin, Rgb},
     imu::{ImuWrapper, Quaternion, IMU_REPORTING_INTERVAL_MS, IMU_REPORTING_RATE_HZ},
@@ -62,6 +62,7 @@ static QUAT_SIGNAL: Signal<Quaternion> = Signal::new();
 
 static BLE: SyncWrapper<Ble> = SyncWrapper::new_none();
 static SERVICE: SyncWrapper<QuaternionsService> = SyncWrapper::new_none();
+static BATT_SERVICE: SyncWrapper<BatteryService> = SyncWrapper::new_none();
 
 static BLE_READY_SIGNAL: Signal<()> = Signal::new();
 
@@ -102,17 +103,23 @@ async fn run_main(mbox: TlMbox, ipcc: Ipcc) {
 
     defmt::info!("BLE Initialized");
 
-    tracksb::ble::service::init_gap_and_gatt(&mut ble)
-        .await
-        .unwrap();
+    tracksb::ble::init_gap_and_gatt(&mut ble).await.unwrap();
     let service = tracksb::ble::service::QuaternionsService::new(&mut ble)
         .await
         .unwrap();
+    let batt_service = tracksb::ble::batt_service::BatteryService::new(&mut ble)
+        .await
+        .unwrap();
 
-    defmt::info!("Service Ready");
+    tracksb::ble::set_advertisement(true, &mut ble)
+        .await
+        .unwrap();
+
+    defmt::info!("BLE Services Ready");
 
     unsafe { &mut *BLE.0.get() }.replace(ble);
     unsafe { &mut *SERVICE.0.get() }.replace(service);
+    unsafe { &mut *BATT_SERVICE.0.get() }.replace(batt_service);
 
     BLE_READY_SIGNAL.signal(());
 
@@ -121,7 +128,7 @@ async fn run_main(mbox: TlMbox, ipcc: Ipcc) {
         if let Some(ble) = ble {
             let quat = QUAT_SIGNAL.wait().await;
             if ble.has_events() {
-                tracksb::ble::service::process_event(ble).await.unwrap();
+                tracksb::ble::process_event(ble).await.unwrap();
             }
             let service = unsafe { &mut *SERVICE.0.get() };
             if let Some(service) = service {
@@ -130,6 +137,15 @@ async fn run_main(mbox: TlMbox, ipcc: Ipcc) {
                     defmt::Debug2Format::<defmt::consts::U128>(&quat)
                 );*/
                 service.update(ble, &quat).await.unwrap();
+            }
+
+            let batt_service = unsafe { &mut *BATT_SERVICE.0.get() };
+            let pmic = unsafe { &mut *PMIC.0.get() };
+            if let Some(pmic) = pmic {
+                if let Some(batt_service) = batt_service {
+                    let level = pmic.battery_level().unwrap();
+                    batt_service.update(ble, level as u8).await.unwrap();
+                }
             }
         }
     }
@@ -285,7 +301,7 @@ fn main() -> ! {
 
     loop {
         executor.run();
-        cortex_m::asm::wfi();
+        cortex_m::asm::wfe();
     }
 }
 
