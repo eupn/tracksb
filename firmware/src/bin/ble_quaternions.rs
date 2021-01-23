@@ -111,7 +111,9 @@ async fn run_main(mbox: TlMbox, ipcc: Ipcc) {
         .await
         .unwrap();
 
-    tracksb::ble::set_advertisement(true, &mut ble).await.unwrap();
+    tracksb::ble::set_advertisement(true, &mut ble)
+        .await
+        .unwrap();
 
     defmt::info!("BLE Services Ready");
 
