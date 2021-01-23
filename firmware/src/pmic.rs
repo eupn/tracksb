@@ -1,11 +1,11 @@
 //! Power Management IC (AXP173) routines
 
-use core::marker::PhantomData;
 use crate::bsp;
 use axp173::{
     AdcSampleRate, AdcSettings, Axp173, ChargingCurrent, Irq, Ldo, LdoKind, ShutdownLongPressTime,
     TsPinMode,
 };
+use core::marker::PhantomData;
 use embedded_hal::blocking::{
     delay::DelayMs,
     i2c::{Write, WriteRead},
@@ -18,10 +18,15 @@ use stm32wb_hal::{
 
 pub trait PmicState {}
 pub struct Created;
-pub struct Initialized;
+pub struct Initialized {
+    pub max_charge_coulombs: u32,
+}
 
 impl PmicState for Created {}
 impl PmicState for Initialized {}
+
+/// Measured number of coulombs in a 100 mAh battery.
+const DEFAULT_100MAH_CHARGED_COULOMBS: u32 = 221;
 
 #[derive(Debug, Copy, Clone)]
 pub enum ImuPowerState {
@@ -32,7 +37,7 @@ pub enum ImuPowerState {
 
 pub struct Pmic<S: PmicState, E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> {
     axp173: Axp173<I>,
-    _s: PhantomData<S>,
+    state: S,
 }
 
 pub struct PmicBuilder<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> {
@@ -61,7 +66,7 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> PmicBuilde
 
         Pmic {
             axp173,
-            _s: PhantomData,
+            state: Created,
         }
     }
 }
@@ -103,7 +108,9 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Creat
 
         Ok(Pmic {
             axp173: self.axp173,
-            _s: PhantomData,
+            state: Initialized {
+                max_charge_coulombs: DEFAULT_100MAH_CHARGED_COULOMBS,
+            },
         })
     }
 
@@ -140,7 +147,6 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Initi
         let mut imu_power_state = ImuPowerState::Unchanged;
 
         if self.axp173.check_irq(Irq::ButtonLongPress)? {
-            defmt::info!("Long press");
             self.axp173.clear_irq(Irq::ButtonLongPress)?;
 
             if self.imu_enabled()? {
@@ -157,6 +163,10 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Initi
             self.axp173.clear_irq(Irq::BatteryCharged)?;
             let charge_coulombs = self.axp173.read_charge_coulomb_counter()?;
             defmt::info!("Battery charged, charge cc: {:u32}", charge_coulombs);
+            if charge_coulombs > self.state.max_charge_coulombs {
+                self.state.max_charge_coulombs = charge_coulombs;
+            }
+            self.axp173.reset_coulomb_counter()?;
         }
         if self.axp173.check_irq(Irq::LowBatteryWarning)? {
             self.axp173.clear_irq(Irq::LowBatteryWarning)?;
@@ -187,6 +197,28 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Initi
         );
 
         Ok(())
+    }
+
+    pub fn battery_level(&mut self) -> Result<u8, axp173::Error<E>> {
+        let coulombs_out = self.axp173.read_discharge_coulomb_counter()?;
+        let coulombs_in = self.axp173.read_charge_coulomb_counter()?;
+        if coulombs_in > self.state.max_charge_coulombs {
+            self.state.max_charge_coulombs = coulombs_in;
+            defmt::info!("Updated max coulombs: {:?}", self.state.max_charge_coulombs);
+        }
+
+        let coulombs_left = self.state.max_charge_coulombs.saturating_sub(coulombs_out);
+        let level_pct = coulombs_left as f32 / self.state.max_charge_coulombs as f32 * 100_f32;
+        let level_pct = level_pct as u8;
+
+        defmt::info!(
+            "Charge level: {:?} [^{:?} / v{:?}]",
+            level_pct,
+            coulombs_out,
+            coulombs_in,
+        );
+
+        Ok(level_pct)
     }
 }
 

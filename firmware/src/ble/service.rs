@@ -1,18 +1,8 @@
 use crate::imu::Quaternion;
-use bluetooth_hci::{
-    event::command::ReturnParameters,
-    host::{uart::Packet, AdvertisingFilterPolicy, Hci, OwnAddressType},
-    types::AdvertisingType,
-    BdAddr, Event,
-};
-use core::time::Duration;
+use bluetooth_hci::event::command::ReturnParameters;
 use embassy_stm32wb55::ble::Ble;
 use stm32wb55::{
-    event::{
-        command::{GattCharacteristic, GattService},
-        AttExchangeMtuResponse, GattAttributeModified, Stm32Wb5xEvent,
-    },
-    gap::{AdvertisingDataType, Commands as GapCommands, DiscoverableParameters, LocalName, Role},
+    event::command::{GattCharacteristic, GattService},
     gatt::{
         AddCharacteristicParameters, AddServiceParameters, CharacteristicEvent,
         CharacteristicHandle, CharacteristicPermission, CharacteristicProperty,
@@ -28,10 +18,11 @@ pub struct QuaternionsService {
 }
 
 impl QuaternionsService {
-    const UUID: Uuid = Uuid::Uuid128([
+    pub const UUID_BYTES: [u8; 16] = [
         0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x11, 0xe1, 0x9a, 0xb4, 0x00, 0x02, 0xa5, 0xd5, 0xc5,
         0x1b,
-    ]);
+    ];
+    pub const UUID: Uuid = Uuid::Uuid128(Self::UUID_BYTES);
 
     /// n = 1 for `QuaternionsService`
     ///     + 2 for `QuaternionsCharacteristic`
@@ -59,12 +50,10 @@ impl QuaternionsService {
             // TODO: check status
             service_handle
         } else {
-            return Err(crate::ble::BleError::UnexpectedEvent);
+            return Err(super::BleError::UnexpectedEvent);
         };
 
         let notify_char = QuaternionsCharacteristic::new(handle, ble).await?;
-
-        set_advertisement(true, ble).await?;
 
         Ok(Self {
             handle,
@@ -131,13 +120,17 @@ impl QuaternionsCharacteristic {
         let handle = if let ReturnParameters::Vendor(
             stm32wb55::event::command::ReturnParameters::GattAddCharacteristic(
                 GattCharacteristic {
-                    status: _,
+                    status,
                     characteristic_handle,
                 },
             ),
         ) = return_params
         {
             // TODO: check status
+            defmt::info!(
+                "Status: {:?}",
+                defmt::Debug2Format::<defmt::consts::U128>(&status)
+            );
             characteristic_handle
         } else {
             return Err(crate::ble::BleError::UnexpectedEvent);
