@@ -183,7 +183,7 @@ pub async fn set_advertisement(enabled: bool, ble: &mut Ble) -> Result<(), BleEr
 pub async fn process_event(ble: &mut Ble) -> Result<(), BleError> {
     let event = ble.receive_event().await?;
     match event {
-        Packet::Event(Event::LeConnectionComplete(cc)) => {
+        Packet::Event(Event::ConnectionComplete(cc)) => {
             defmt::info!(
                 "Connected: {:?}",
                 defmt::Debug2Format::<defmt::consts::U128>(&cc)
@@ -195,6 +195,8 @@ pub async fn process_event(ble: &mut Ble) -> Result<(), BleError> {
                 "Disconnected: {:?}",
                 defmt::Debug2Format::<defmt::consts::U128>(&dc)
             );
+
+            set_advertisement(true, ble).await?;
         }
 
         Packet::Event(Event::Vendor(Stm32Wb5xEvent::AttExchangeMtuResponse(
