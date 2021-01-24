@@ -19,14 +19,14 @@ use stm32wb_hal::{
 pub trait PmicState {}
 pub struct Created;
 pub struct Initialized {
-    pub max_charge_coulombs: u32,
+    charge_coulombs_default: u32,
 }
 
 impl PmicState for Created {}
 impl PmicState for Initialized {}
 
-/// Measured number of coulombs in a 100 mAh battery.
-const DEFAULT_100MAH_CHARGED_COULOMBS: u32 = 221;
+/// The capacity of the device's battery in mAhs.
+const DEFAULT_BATTERY_CAPACITY_MAH: f32 = 100.0;
 
 #[derive(Debug, Copy, Clone)]
 pub enum ImuPowerState {
@@ -109,7 +109,10 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Creat
         Ok(Pmic {
             axp173: self.axp173,
             state: Initialized {
-                max_charge_coulombs: DEFAULT_100MAH_CHARGED_COULOMBS,
+                charge_coulombs_default: axp173::mah_to_coulombs_adc(
+                    DEFAULT_BATTERY_CAPACITY_MAH,
+                    25.0,
+                ) as u32,
             },
         })
     }
@@ -161,12 +164,6 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Initi
         }
         if self.axp173.check_irq(Irq::BatteryCharged)? {
             self.axp173.clear_irq(Irq::BatteryCharged)?;
-            let charge_coulombs = self.axp173.read_charge_coulomb_counter()?;
-            defmt::info!("Battery charged, charge cc: {:u32}", charge_coulombs);
-            if charge_coulombs > self.state.max_charge_coulombs {
-                self.state.max_charge_coulombs = charge_coulombs;
-            }
-            self.axp173.reset_coulomb_counter()?;
         }
         if self.axp173.check_irq(Irq::LowBatteryWarning)? {
             self.axp173.clear_irq(Irq::LowBatteryWarning)?;
@@ -201,24 +198,29 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Initi
 
     pub fn battery_level(&mut self) -> Result<u8, axp173::Error<E>> {
         let coulombs_out = self.axp173.read_discharge_coulomb_counter()?;
-        let coulombs_in = self.axp173.read_charge_coulomb_counter()?;
-        if coulombs_in > self.state.max_charge_coulombs {
-            self.state.max_charge_coulombs = coulombs_in;
-            defmt::info!("Updated max coulombs: {:?}", self.state.max_charge_coulombs);
+        let mut coulombs_in = self.axp173.read_charge_coulomb_counter()?;
+
+        // Assume full battery if there's not enough charge coulombs
+        if coulombs_in < self.state.charge_coulombs_default {
+            coulombs_in = self.state.charge_coulombs_default + 1;
         }
 
-        let coulombs_left = self.state.max_charge_coulombs.saturating_sub(coulombs_out);
-        let level_pct = coulombs_left as f32 / self.state.max_charge_coulombs as f32 * 100_f32;
-        let level_pct = level_pct as u8;
+        let remaining_charge = self.axp173.estimate_charge_level(Some(coulombs_in))?;
+        if let Some(remaining_charge) = remaining_charge {
+            let level_pct = remaining_charge as f32 / DEFAULT_BATTERY_CAPACITY_MAH * 100_f32;
+            let level_pct = level_pct as u8;
 
-        defmt::info!(
-            "Charge level: {:?} [^{:?} / v{:?}]",
-            level_pct,
-            coulombs_out,
-            coulombs_in,
-        );
+            defmt::info!(
+                "Charge level: {:?} [^ {:?} / v {:?}]",
+                level_pct,
+                coulombs_out,
+                coulombs_in,
+            );
 
-        Ok(level_pct)
+            Ok(level_pct)
+        } else {
+            Ok(100)
+        }
     }
 }
 
