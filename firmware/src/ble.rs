@@ -150,8 +150,7 @@ pub async fn set_advertisement(enabled: bool, ble: &mut Ble) -> Result<(), BleEr
             .perform_command(|rc| {
                 let mut services = [0u8; 3];
                 services[0] = AdvertisingDataType::Uuid16 as u8;
-                services[1] = (BatteryService::UUID_16 & 0xff) as u8;
-                services[2] = ((BatteryService::UUID_16 >> 8) & 0xff) as u8;
+                services[1..2].copy_from_slice(&BatteryService::UUID_16.to_le_bytes());
 
                 let params = DiscoverableParameters {
                     advertising_type: AdvertisingType::ConnectableUndirected,
