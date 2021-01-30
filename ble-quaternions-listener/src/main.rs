@@ -1,11 +1,11 @@
 //! Logs motion data (quaternions, accel & gyro) received over BLE to the file.
 
-use std::str::FromStr;
-use std::thread;
-use std::time::Duration;
 use std::io::{Cursor, Write};
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 use btleplug::api::{Central, Peripheral, ValueNotification, UUID};
 #[cfg(target_os = "linux")]
@@ -16,6 +16,7 @@ use btleplug::corebluetooth::{adapter::Adapter, manager::Manager};
 use btleplug::winrtble::{adapter::Adapter, manager::Manager};
 use byteorder::{LittleEndian, ReadBytesExt};
 
+const LOG_PATH: &str = "motion_log.txt";
 
 const MOTION_CHARACTERISTIC_UUID: &str = "1B:C5:D5:A5:02:00:36:AC:E1:11:01:00:00:01:00:00";
 
@@ -54,6 +55,8 @@ pub fn main() {
         })
         .expect("No TrackSBs found");
 
+    println!("TrackSB found, connecting");
+
     // connect to the device
     tracksb.connect().unwrap();
 
@@ -70,6 +73,7 @@ pub fn main() {
     let log = Path::new(LOG_PATH);
     let log_file = Arc::new(Mutex::new(std::fs::File::create(log).unwrap()));
     let log_file = log_file.clone();
+
     tracksb.on_notification(Box::new(move |notif: ValueNotification| {
         let mut rdr = Cursor::new(notif.value);
         let q_x = rdr.read_f32::<LittleEndian>().unwrap();
@@ -95,6 +99,7 @@ pub fn main() {
         log_file.flush().unwrap();
     }));
 
+    println!("Connected, starting streaming data");
     tracksb.subscribe(quaternions_char).unwrap();
 
     loop {
