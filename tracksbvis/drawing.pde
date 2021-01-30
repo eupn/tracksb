@@ -1,3 +1,6 @@
+final int AXIS_LINE_LENGTH = 150;
+final int ACCEL_VEC_SCALE = 50;
+
 void drawCube(PVector accel) {  
   pushMatrix();
   translate(VIEW_SIZE_X/2, VIEW_SIZE_Y/2 - 50, 0);
@@ -13,6 +16,8 @@ void drawCube(PVector accel) {
 
 
 void drawAxes(PVector accel) {
+  strokeWeight(1);
+
   pushMatrix();
   scale(5,5,5);
   // Rotate skateboard to match axes
@@ -27,29 +32,42 @@ void drawAxes(PVector accel) {
   // X, blue
   stroke(0, 0, 255);
   fill(0, 0, 255);
-  line(-300, 0, 0, 300, 0, 0);
+  line(-AXIS_LINE_LENGTH, 0, 0, AXIS_LINE_LENGTH, 0, 0);
   
   // Y, red
   stroke(255, 0, 0);
   fill(255, 0, 0);
-  line(0, 0, -300, 0, 0, 300); // Line spans across Processing's Z axis
+  line(0, 0, -AXIS_LINE_LENGTH, 0, 0, AXIS_LINE_LENGTH); // Line spans across Processing's Z axis
   
   // Z, green
   stroke(0, 255, 0);
   fill(0, 255, 0);
-  line(0, -300, 0, 0, 300, 0); // Line spans across Processing's Y axis
+  line(0, -AXIS_LINE_LENGTH, 0, 0, AXIS_LINE_LENGTH, 0); // Line spans across Processing's Y axis
   
   fill(255, 255, 255);
-  text("+x", -210, 0, 0);
-  text("-x", 210, 0, 0);
-  text("-z", 0, 210, 0);
-  text("+z", 0, -210, 0);
-  text("+y", 0, 0, 210);
-  text("-y", 0, 0, -210);
+  text("+x", -AXIS_LINE_LENGTH, 0, 0);
+  text("-x", AXIS_LINE_LENGTH, 0, 0);
+  text("-z", 0, AXIS_LINE_LENGTH, 0);
+  text("+z", 0, -AXIS_LINE_LENGTH, 0);
+  text("+y", 0, 0, AXIS_LINE_LENGTH);
+  text("-y", 0, 0, -AXIS_LINE_LENGTH);
   
   // Draw acceleration vector
-  PVector scaled_accel = accel.mult(10);
-  stroke(255, 0, 0);
+  PVector scaled_accel = accel.mult(50);
+  stroke(120, 120, 120);
+  strokeWeight(5);
   fill(255, 0, 0);
-  line(accel.x, accel.y, accel.z, scaled_accel.x, scaled_accel.y, scaled_accel.z);
+  line(0, 0, 0, scaled_accel.x, scaled_accel.z, -scaled_accel.y);
+  arrow(0, 0, 0, scaled_accel.x, scaled_accel.z, -scaled_accel.y);
 }
+
+void arrow(float x1, float y1, float z1, float x2, float y2, float z2) {
+  line(x1, y1, z1, x2, y2, z2);
+  pushMatrix();
+  translate(x2, y2, z2);
+  float a = atan2(x1-x2, y2-y1);
+  rotate(a);
+  line(0, 0, 0, -10, -10, 0);
+  line(0, 0, 0, 10, -10, 0);
+  popMatrix();
+} 

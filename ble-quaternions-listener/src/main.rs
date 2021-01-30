@@ -75,19 +75,20 @@ pub fn main() {
     let log_file = log_file.clone();
 
     tracksb.on_notification(Box::new(move |notif: ValueNotification| {
+        println!("kok");
         let mut rdr = Cursor::new(notif.value);
-        let q_x = rdr.read_f32::<LittleEndian>().unwrap();
-        let q_y = rdr.read_f32::<LittleEndian>().unwrap();
-        let q_z = rdr.read_f32::<LittleEndian>().unwrap();
-        let q_w = rdr.read_f32::<LittleEndian>().unwrap();
+        let q_x = q14_to_f32(rdr.read_i16::<LittleEndian>().unwrap());
+        let q_y = q14_to_f32(rdr.read_i16::<LittleEndian>().unwrap());
+        let q_z = q14_to_f32(rdr.read_i16::<LittleEndian>().unwrap());
+        let q_w = q14_to_f32(rdr.read_i16::<LittleEndian>().unwrap());
 
-        let accel_x = rdr.read_f32::<LittleEndian>().unwrap();
-        let accel_y = rdr.read_f32::<LittleEndian>().unwrap();
-        let accel_z = rdr.read_f32::<LittleEndian>().unwrap();
+        let accel_x = q8_to_f32(rdr.read_i16::<LittleEndian>().unwrap());
+        let accel_y = q8_to_f32(rdr.read_i16::<LittleEndian>().unwrap());
+        let accel_z = q8_to_f32(rdr.read_i16::<LittleEndian>().unwrap());
 
-        let gyro_x = rdr.read_f32::<LittleEndian>().unwrap();
-        let gyro_y = rdr.read_f32::<LittleEndian>().unwrap();
-        let gyro_z = rdr.read_f32::<LittleEndian>().unwrap();
+        let gyro_x = q9_to_f32(rdr.read_i16::<LittleEndian>().unwrap());
+        let gyro_y = q9_to_f32(rdr.read_i16::<LittleEndian>().unwrap());
+        let gyro_z = q9_to_f32(rdr.read_i16::<LittleEndian>().unwrap());
 
         let log_line = format!(
             "{} {} {} {} {} {} {} {} {} {}\n",
@@ -105,4 +106,20 @@ pub fn main() {
     loop {
         thread::sleep(Duration::from_millis(1));
     }
+}
+
+const Q8_SCALE: f32 = 1.0 / ((1 << 8) as f32);
+const Q9_SCALE: f32 = 1.0 / ((1 << 9) as f32);
+const Q14_SCALE: f32 = 1.0 / ((1 << 14) as f32);
+
+fn q14_to_f32(q_val: i16) -> f32 {
+    (q_val as f32) * Q14_SCALE
+}
+
+fn q8_to_f32(q_val: i16) -> f32 {
+    (q_val as f32) * Q8_SCALE
+}
+
+fn q9_to_f32(q_val: i16) -> f32 {
+    (q_val as f32) * Q9_SCALE
 }

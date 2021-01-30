@@ -141,18 +141,18 @@ impl MotionCharacteristic {
 
 #[repr(C, packed)]
 pub struct MotionCharacteristicValue {
-    quat_x: f32,
-    quat_y: f32,
-    quat_z: f32,
-    quat_w: f32,
+    quat_x: i16,
+    quat_y: i16,
+    quat_z: i16,
+    quat_w: i16,
 
-    accel_x: f32,
-    accel_y: f32,
-    accel_z: f32,
+    accel_x: i16,
+    accel_y: i16,
+    accel_z: i16,
 
-    gyro_x: f32,
-    gyro_y: f32,
-    gyro_z: f32,
+    gyro_x: i16,
+    gyro_y: i16,
+    gyro_z: i16,
 }
 
 impl MotionCharacteristicValue {

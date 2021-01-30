@@ -21,8 +21,8 @@ pub struct Initialized;
 impl ImuState for Created {}
 impl ImuState for Initialized {}
 
-pub type Quaternion = [f32; 4];
-pub type Vec3 = [f32; 3];
+pub type Quaternion = [i16; 4];
+pub type Vec3 = [i16; 3];
 pub type ImuError<E> = WrapperError<bno080::Error<E, ()>>;
 
 pub struct MotionData {
@@ -183,9 +183,9 @@ impl<E: core::fmt::Debug, I: Read<Error = E> + WriteRead<Error = E> + Write<Erro
         let msg_count = self.bno.handle_all_messages(delay, 10u8);
         if msg_count > 0 {
             return Ok(Some(MotionData {
-                quat: self.bno.rotation_quaternion()?,
-                accel: self.bno.linear_accel()?,
-                gyro: self.bno.gyro()?,
+                quat: self.bno.rotation_quaternion_fixed()?,
+                accel: self.bno.linear_accel_fixed()?,
+                gyro: self.bno.gyro_fixed()?,
             }));
         }
 
