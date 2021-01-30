@@ -33,10 +33,10 @@ use stm32wb_hal::{
     tl_mbox::{shci::ShciBleInitCmdParam, TlMbox},
 };
 use tracksb::{
-    ble::{batt_service::BatteryService, service::QuaternionsService},
+    ble::{batt_service::BatteryService, motion_service::MotionService},
     bsp,
     bsp::{ImuIntPin, PmicIntPin, Rgb},
-    imu::{ImuWrapper, Quaternion, IMU_REPORTING_INTERVAL_MS, IMU_REPORTING_RATE_HZ},
+    imu::{ImuWrapper, MotionData, IMU_REPORTING_INTERVAL_MS, IMU_REPORTING_RATE_HZ},
     pmic,
     pmic::{wait_init_pmic, ImuPowerState, Pmic},
     rgbled::{startup_animate, LedColor, RgbLed},
@@ -58,13 +58,14 @@ static IMU: SyncWrapper<ImuWrapper<I2cError, bsp::ImuI2c, bsp::ImuResetPin>> =
     SyncWrapper::new_none();
 static IMU_INT_PIN: SyncWrapper<ImuIntPin> = SyncWrapper::new_none();
 static DELAY: SyncWrapper<DelayCM> = SyncWrapper::new_none();
-static QUAT_SIGNAL: Signal<Quaternion> = Signal::new();
 
 static BLE: SyncWrapper<Ble> = SyncWrapper::new_none();
-static SERVICE: SyncWrapper<QuaternionsService> = SyncWrapper::new_none();
+static SERVICE: SyncWrapper<MotionService> = SyncWrapper::new_none();
 static BATT_SERVICE: SyncWrapper<BatteryService> = SyncWrapper::new_none();
 
 static BLE_READY_SIGNAL: Signal<()> = Signal::new();
+
+static MOTION_SIGNAL: Signal<MotionData> = Signal::new();
 
 #[task]
 async fn run_main(mbox: TlMbox, ipcc: Ipcc) {
@@ -73,7 +74,7 @@ async fn run_main(mbox: TlMbox, ipcc: Ipcc) {
         ble_buffer_size: 0,
         num_attr_record: 68,
         num_attr_serv: 8,
-        attr_value_arr_size: 1344,
+        attr_value_arr_size: 4096,
         num_of_links: 8,
         extended_packet_length_enable: 1,
         pr_write_list_size: 0x3A,
@@ -104,7 +105,7 @@ async fn run_main(mbox: TlMbox, ipcc: Ipcc) {
     defmt::info!("BLE Initialized");
 
     tracksb::ble::init_gap_and_gatt(&mut ble).await.unwrap();
-    let service = tracksb::ble::service::QuaternionsService::new(&mut ble)
+    let service = tracksb::ble::motion_service::MotionService::new(&mut ble)
         .await
         .unwrap();
     let batt_service = tracksb::ble::batt_service::BatteryService::new(&mut ble)
@@ -126,17 +127,13 @@ async fn run_main(mbox: TlMbox, ipcc: Ipcc) {
     loop {
         let ble = unsafe { &mut *BLE.0.get() };
         if let Some(ble) = ble {
-            let quat = QUAT_SIGNAL.wait().await;
+            let motion_data = MOTION_SIGNAL.wait().await;
             if ble.has_events() {
                 tracksb::ble::process_event(ble).await.unwrap();
             }
             let service = unsafe { &mut *SERVICE.0.get() };
             if let Some(service) = service {
-                /*defmt::info!(
-                    "Updating quaternion: {:?}",
-                    defmt::Debug2Format::<defmt::consts::U128>(&quat)
-                );*/
-                service.update(ble, &quat).await.unwrap();
+                service.update(ble, &motion_data).await.unwrap();
             }
 
             let batt_service = unsafe { &mut *BATT_SERVICE.0.get() };
@@ -310,10 +307,10 @@ fn poll_imu(imu: &mut ImuWrapper<I2cError, bsp::ImuI2c, bsp::ImuResetPin>) {
     let rgb_led = unsafe { &mut *RGB.0.get() };
 
     if let Some(delay) = delay {
-        if let Some(quat) = imu.quaternion(delay).unwrap() {
-            if let Some(rgb_led) = rgb_led {
+        if let Some(rgb_led) = rgb_led {
+            if let Some(motion_data) = imu.motion_data(delay).unwrap() {
                 rgb_led.toggle(LedColor::Green);
-                QUAT_SIGNAL.signal(quat);
+                MOTION_SIGNAL.signal(motion_data);
             }
         }
     }
@@ -425,5 +422,5 @@ unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
     green_led.set_high().unwrap();
     blue_led.set_high().unwrap();
 
-    cortex_m::asm::udf();
+    panic!("HardFault");
 }

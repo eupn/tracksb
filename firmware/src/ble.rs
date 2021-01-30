@@ -22,7 +22,7 @@ const BLE_DEVICE_LOCAL_NAME: &[u8] = b"Quaternions";
 const BLE_GAP_DEVICE_NAME: &[u8] = b"Quaternions";
 
 pub mod batt_service;
-pub mod service;
+pub mod motion_service;
 
 type BleError = embassy_stm32wb55::ble::BleError<
     bluetooth_hci::host::uart::Error<(), stm32wb55::event::Stm32Wb5xError>,

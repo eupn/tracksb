@@ -1,4 +1,4 @@
-use crate::imu::Quaternion;
+use crate::imu::MotionData;
 use bluetooth_hci::event::command::ReturnParameters;
 use embassy_stm32wb55::ble::Ble;
 use stm32wb55::{
@@ -12,12 +12,12 @@ use stm32wb55::{
 };
 
 #[derive(Debug)]
-pub struct QuaternionsService {
+pub struct MotionService {
     handle: ServiceHandle,
-    notify_char: QuaternionsCharacteristic,
+    motion_char: MotionCharacteristic,
 }
 
-impl QuaternionsService {
+impl MotionService {
     pub const UUID_BYTES: [u8; 16] = [
         0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x11, 0xe1, 0x9a, 0xb4, 0x00, 0x02, 0xa5, 0xd5, 0xc5,
         0x1b,
@@ -33,7 +33,7 @@ impl QuaternionsService {
         let return_params = ble
             .perform_command(|rc| {
                 rc.add_service(&AddServiceParameters {
-                    uuid: QuaternionsService::UUID,
+                    uuid: MotionService::UUID,
                     service_type: ServiceType::Primary,
                     max_attribute_records: Self::MAX_ATTRIBUTE_RECORDS as u8,
                 })
@@ -53,27 +53,27 @@ impl QuaternionsService {
             return Err(super::BleError::UnexpectedEvent);
         };
 
-        let notify_char = QuaternionsCharacteristic::new(handle, ble).await?;
+        let notify_char = MotionCharacteristic::new(handle, ble).await?;
 
         Ok(Self {
             handle,
-            notify_char,
+            motion_char: notify_char,
         })
     }
 
     pub async fn update(
         &mut self,
         ble: &mut Ble,
-        quat: &Quaternion,
+        motion_data: &MotionData,
     ) -> Result<(), super::BleError> {
-        let binary_quat: QuaternionsCharacteristicValue = quat.into();
+        let binary_motion_data: MotionCharacteristicValue = motion_data.into();
 
         ble.perform_command(|rc| {
             let params = UpdateCharacteristicValueParameters {
                 service_handle: self.handle,
-                characteristic_handle: self.notify_char.handle,
+                characteristic_handle: self.motion_char.handle,
                 offset: 0,
-                value: binary_quat.as_slice(),
+                value: binary_motion_data.as_slice(),
             };
 
             rc.update_characteristic_value(&params)
@@ -86,11 +86,11 @@ impl QuaternionsService {
 }
 
 #[derive(Debug)]
-pub struct QuaternionsCharacteristic {
+pub struct MotionCharacteristic {
     handle: CharacteristicHandle,
 }
 
-impl QuaternionsCharacteristic {
+impl MotionCharacteristic {
     const UUID: Uuid = Uuid::Uuid128([
         0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x11, 0xe1, 0xac, 0x36, 0x00, 0x02, 0xa5, 0xd5, 0xc5,
         0x1b,
@@ -99,14 +99,13 @@ impl QuaternionsCharacteristic {
     pub async fn new(
         service_handle: ServiceHandle,
         ble: &mut Ble,
-    ) -> Result<QuaternionsCharacteristic, super::BleError> {
+    ) -> Result<MotionCharacteristic, super::BleError> {
         let return_params = ble
             .perform_command(|rc| {
                 rc.add_characteristic(&AddCharacteristicParameters {
                     service_handle,
                     characteristic_uuid: Self::UUID,
-                    characteristic_value_len: core::mem::size_of::<QuaternionsCharacteristicValue>(
-                    ),
+                    characteristic_value_len: core::mem::size_of::<MotionCharacteristicValue>(),
                     characteristic_properties: CharacteristicProperty::NOTIFY,
                     security_permissions: CharacteristicPermission::AUTHENTICATED_READ,
                     gatt_event_mask: CharacteristicEvent::ATTRIBUTE_WRITE,
@@ -141,14 +140,22 @@ impl QuaternionsCharacteristic {
 }
 
 #[repr(C, packed)]
-pub struct QuaternionsCharacteristicValue {
-    i: f32,
-    j: f32,
-    k: f32,
-    s: f32,
+pub struct MotionCharacteristicValue {
+    quat_x: f32,
+    quat_y: f32,
+    quat_z: f32,
+    quat_w: f32,
+
+    accel_x: f32,
+    accel_y: f32,
+    accel_z: f32,
+
+    gyro_x: f32,
+    gyro_y: f32,
+    gyro_z: f32,
 }
 
-impl QuaternionsCharacteristicValue {
+impl MotionCharacteristicValue {
     /// Reinterprets it as an array.
     fn as_slice(&self) -> &[u8] {
         let len = core::mem::size_of::<Self>();
@@ -158,13 +165,21 @@ impl QuaternionsCharacteristicValue {
     }
 }
 
-impl From<&crate::imu::Quaternion> for QuaternionsCharacteristicValue {
-    fn from(quat: &crate::imu::Quaternion) -> Self {
+impl From<&crate::imu::MotionData> for MotionCharacteristicValue {
+    fn from(motion_data: &crate::imu::MotionData) -> Self {
         Self {
-            i: quat[0],
-            j: quat[1],
-            k: quat[2],
-            s: quat[3],
+            quat_x: motion_data.quat[0],
+            quat_y: motion_data.quat[1],
+            quat_z: motion_data.quat[2],
+            quat_w: motion_data.quat[3],
+
+            accel_x: motion_data.accel[0],
+            accel_y: motion_data.accel[1],
+            accel_z: motion_data.accel[2],
+
+            gyro_x: motion_data.gyro[0],
+            gyro_y: motion_data.gyro[1],
+            gyro_z: motion_data.gyro[2],
         }
     }
 }

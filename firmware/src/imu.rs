@@ -22,7 +22,14 @@ impl ImuState for Created {}
 impl ImuState for Initialized {}
 
 pub type Quaternion = [f32; 4];
+pub type Vec3 = [f32; 3];
 pub type ImuError<E> = WrapperError<bno080::Error<E, ()>>;
+
+pub struct MotionData {
+    pub quat: Quaternion,
+    pub accel: Vec3,
+    pub gyro: Vec3,
+}
 
 pub enum ImuOrBus<
     E: core::fmt::Debug,
@@ -99,12 +106,12 @@ impl<
         matches!(self.inner, ImuOrBus::Imu(_))
     }
 
-    pub fn quaternion(
+    pub fn motion_data(
         &mut self,
         delay: &mut impl DelayMs<u8>,
-    ) -> Result<Option<Quaternion>, ImuError<E>> {
+    ) -> Result<Option<MotionData>, ImuError<E>> {
         if let ImuOrBus::Imu(imu) = &mut self.inner {
-            Ok(imu.quaternion(delay)?)
+            Ok(imu.motion_data(delay)?)
         } else {
             Ok(None)
         }
@@ -153,6 +160,12 @@ impl<E: core::fmt::Debug, I: Read<Error = E> + WriteRead<Error = E> + Write<Erro
         self.bno.init(delay)?;
         self.bno.enable_rotation_vector(interval_ms)?;
 
+        defmt::info!("Enabling accel");
+        self.bno.enable_linear_accel(interval_ms)?;
+
+        defmt::info!("Enabling gyro");
+        self.bno.enable_gyro(interval_ms)?;
+
         Ok(Imu {
             _s: PhantomData,
             bno: self.bno,
@@ -163,13 +176,17 @@ impl<E: core::fmt::Debug, I: Read<Error = E> + WriteRead<Error = E> + Write<Erro
 impl<E: core::fmt::Debug, I: Read<Error = E> + WriteRead<Error = E> + Write<Error = E>>
     Imu<Initialized, E, I>
 {
-    pub fn quaternion(
+    pub fn motion_data(
         &mut self,
         delay: &mut impl DelayMs<u8>,
-    ) -> Result<Option<Quaternion>, ImuError<E>> {
-        let msg_count = self.bno.handle_all_messages(delay, 1u8);
+    ) -> Result<Option<MotionData>, ImuError<E>> {
+        let msg_count = self.bno.handle_all_messages(delay, 10u8);
         if msg_count > 0 {
-            return Ok(Some(self.bno.rotation_quaternion()?));
+            return Ok(Some(MotionData {
+                quat: self.bno.rotation_quaternion()?,
+                accel: self.bno.linear_accel()?,
+                gyro: self.bno.gyro()?,
+            }));
         }
 
         Ok(None)

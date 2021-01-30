@@ -17,7 +17,7 @@ use btleplug::winrtble::{adapter::Adapter, manager::Manager};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 
-const LOG_PATH: &str = "quaternions.txt";
+const MOTION_CHARACTERISTIC_UUID: &str = "1B:C5:D5:A5:02:00:36:AC:E1:11:01:00:00:01:00:00";
 
 const QUATERNIONS_CHARACTERISTIC_UUID: &str = "1B:C5:D5:A5:02:00:36:AC:E1:11:01:00:00:01:00:00";
 const DEVICE_NAME: &str = "Quaternions";
@@ -65,7 +65,7 @@ pub fn main() {
     let chars = tracksb.characteristics();
     let quaternions_char = chars
         .iter()
-        .find(|c| c.uuid == UUID::from_str(QUATERNIONS_CHARACTERISTIC_UUID).unwrap())
+        .find(|c| c.uuid == UUID::from_str(MOTION_CHARACTERISTIC_UUID).unwrap())
         .unwrap();
 
     let log = Path::new(LOG_PATH);
@@ -73,12 +73,24 @@ pub fn main() {
     let log_file = log_file.clone();
     tracksb.on_notification(Box::new(move |notif: ValueNotification| {
         let mut rdr = Cursor::new(notif.value);
-        let x = rdr.read_f32::<LittleEndian>().unwrap();
-        let y = rdr.read_f32::<LittleEndian>().unwrap();
-        let z = rdr.read_f32::<LittleEndian>().unwrap();
-        let w = rdr.read_f32::<LittleEndian>().unwrap();
+        let q_x = rdr.read_f32::<LittleEndian>().unwrap();
+        let q_y = rdr.read_f32::<LittleEndian>().unwrap();
+        let q_z = rdr.read_f32::<LittleEndian>().unwrap();
+        let q_w = rdr.read_f32::<LittleEndian>().unwrap();
 
-        let log_line = format!("{} {} {} {}\n", x, y, z, w);
+        let accel_x = rdr.read_f32::<LittleEndian>().unwrap();
+        let accel_y = rdr.read_f32::<LittleEndian>().unwrap();
+        let accel_z = rdr.read_f32::<LittleEndian>().unwrap();
+
+        let gyro_x = rdr.read_f32::<LittleEndian>().unwrap();
+        let gyro_y = rdr.read_f32::<LittleEndian>().unwrap();
+        let gyro_z = rdr.read_f32::<LittleEndian>().unwrap();
+
+        let log_line = format!(
+            "{} {} {} {} {} {} {} {} {} {}\n",
+            q_x, q_y, q_z, q_w, accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z,
+        );
+
         let mut log_file = log_file.lock().unwrap();
         log_file.write_all(log_line.as_bytes()).unwrap();
         log_file.flush().unwrap();
