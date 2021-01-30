@@ -20,6 +20,7 @@ pub trait PmicState {}
 pub struct Created;
 pub struct Initialized {
     charge_coulombs_default: u32,
+    is_imu_enabled: bool,
 }
 
 impl PmicState for Created {}
@@ -113,6 +114,7 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Creat
                     DEFAULT_BATTERY_CAPACITY_MAH,
                     25.0,
                 ) as u32,
+                is_imu_enabled: false,
             },
         })
     }
@@ -138,11 +140,13 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Initi
             self.axp173.disable_ldo(&LdoKind::LDO3)?;
         }
 
+        self.state.is_imu_enabled = self.axp173.read_ldo(LdoKind::LDO3)?.enabled();
+
         Ok(())
     }
 
     pub fn imu_enabled(&mut self) -> Result<bool, axp173::Error<E>> {
-        Ok(self.axp173.read_ldo(LdoKind::LDO3)?.enabled())
+        Ok(self.state.is_imu_enabled)
     }
 
     /// Called from PMIC IRQ pin ISR. Checks IRQ flags and clears pending IRQs.
