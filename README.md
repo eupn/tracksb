@@ -50,6 +50,7 @@ for board flashing and debugging via RTT logging.
     - Powered by [`embassy`]
   - [x] BLE
     - [x] Stream quaternions via GATT service with one characteristic
+    - [x] Stream accelerometer and gyroscope data
     - [x] Battery Level service
     - [ ] Device Info Service
   - [ ] Cleanup `static mut` and `unsafe` code
@@ -60,8 +61,16 @@ for board flashing and debugging via RTT logging.
 - [ ] Flash RGB LED instead of simple on/off
   - [x] Simple flash
   - [ ] PWM effects
-- [ ] Optimize power consumption and low-power modes
+- [ ] Optimize power consumption and use low-power modes
   - [x] Fix debugging/RTT in sleep mode
+  - [ ] Enter Low-Power mode in async executor loop
+  - [ ] Detect when device is IDLE and scale down the IMU frequency
+  - [ ] Sleep instead of busy-waiting for the PMIC interrupt on the very first start (battery just plugged)
+
+#### Software
+
+- A BLE client for PC that logs received data is [here](ble-quaternions-listener)
+- A Processing sketch that visualise data is [here](tracksbvis)
 
 ### Device and board orientation
 
