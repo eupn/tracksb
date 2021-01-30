@@ -18,8 +18,8 @@ use stm32wb_hal::tl_mbox::lhci::LhciC1DeviceInformationCcrp;
 /// Advertisement interval in milliseconds.
 const ADV_INTERVAL_MS: u64 = 250;
 
-const BLE_DEVICE_LOCAL_NAME: &[u8] = b"Quaternions";
-const BLE_GAP_DEVICE_NAME: &[u8] = b"Quaternions";
+const BLE_DEVICE_LOCAL_NAME: &[u8] = b"TrackSB";
+const BLE_GAP_DEVICE_NAME: &[u8] = b"TrackSB";
 
 pub mod batt_service;
 pub mod motion_service;

@@ -1,4 +1,4 @@
-//! Logs quaternions received over BLE to the file.
+//! Logs motion data (quaternions, accel & gyro) received over BLE to the file.
 
 use std::str::FromStr;
 use std::thread;
@@ -19,8 +19,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 const MOTION_CHARACTERISTIC_UUID: &str = "1B:C5:D5:A5:02:00:36:AC:E1:11:01:00:00:01:00:00";
 
-const QUATERNIONS_CHARACTERISTIC_UUID: &str = "1B:C5:D5:A5:02:00:36:AC:E1:11:01:00:00:01:00:00";
-const DEVICE_NAME: &str = "Quaternions";
+const DEVICE_NAME: &str = "TrackSB";
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn get_central(manager: &Manager) -> Adapter {
