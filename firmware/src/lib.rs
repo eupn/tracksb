@@ -6,7 +6,8 @@ use defmt_rtt as _; // global logger
 
 use stm32wb_hal as _; // memory layout
 
-use panic_probe as _;
+use panic_reset as _;
+//use panic_probe as _;
 
 pub mod ble;
 pub mod bsp;
