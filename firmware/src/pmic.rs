@@ -26,7 +26,7 @@ impl PmicState for Created {}
 impl PmicState for Initialized {}
 
 /// The capacity of the device's battery in mAhs.
-const DEFAULT_BATTERY_CAPACITY_MAH: f32 = 100.0;
+const DEFAULT_BATTERY_CAPACITY_MAH: f32 = 120.0;
 
 #[derive(Debug, Copy, Clone)]
 pub enum ImuPowerState {
@@ -197,7 +197,7 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Initi
     }
 
     pub fn battery_level(&mut self) -> Result<u8, axp173::Error<E>> {
-        let coulombs_out = self.axp173.read_discharge_coulomb_counter()?;
+        let _coulombs_out = self.axp173.read_discharge_coulomb_counter()?;
         let mut coulombs_in = self.axp173.read_charge_coulomb_counter()?;
 
         // Assume full battery if there's not enough charge coulombs
@@ -208,14 +208,15 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Initi
         let remaining_charge = self.axp173.estimate_charge_level(Some(coulombs_in))?;
         if let Some(remaining_charge) = remaining_charge {
             let level_pct = remaining_charge as f32 / DEFAULT_BATTERY_CAPACITY_MAH * 100_f32;
-            let level_pct = level_pct as u8;
+            let level_pct = (level_pct as u8).clamp(0, 100);
 
-            defmt::info!(
-                "Charge level: {:?} [^ {:?} / v {:?}]",
-                level_pct,
-                coulombs_out,
-                coulombs_in,
-            );
+            // defmt::info!(
+            //     "Charge level: {:?} [^ {:?} / v {:?}], draining {:?} mA",
+            //     level_pct,
+            //     coulombs_out,
+            //     coulombs_in,
+            //     self.axp173.batt_discharge_current()?.as_milliamps(),
+            // );
 
             Ok(level_pct)
         } else {
