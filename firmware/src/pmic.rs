@@ -168,6 +168,7 @@ impl<E: core::fmt::Debug, I: WriteRead<Error = E> + Write<Error = E>> Pmic<Initi
         }
         if self.axp173.check_irq(Irq::BatteryCharged)? {
             self.axp173.clear_irq(Irq::BatteryCharged)?;
+            self.axp173.reset_coulomb_counter()?;
         }
         if self.axp173.check_irq(Irq::LowBatteryWarning)? {
             self.axp173.clear_irq(Irq::LowBatteryWarning)?;
