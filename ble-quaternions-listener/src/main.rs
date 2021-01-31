@@ -75,7 +75,6 @@ pub fn main() {
     let log_file = log_file.clone();
 
     tracksb.on_notification(Box::new(move |notif: ValueNotification| {
-        println!("kok");
         let mut rdr = Cursor::new(notif.value);
         let q_x = q14_to_f32(rdr.read_i16::<LittleEndian>().unwrap());
         let q_y = q14_to_f32(rdr.read_i16::<LittleEndian>().unwrap());

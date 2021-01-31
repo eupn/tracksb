@@ -23,7 +23,6 @@ void drawAxes(PVector accel) {
   // Rotate skateboard to match axes
   rotateX(radians(90));
   rotateZ(-radians(90));
-  //translate(0, 5, -8);
   shape(skate);
   popMatrix();
 
@@ -55,19 +54,7 @@ void drawAxes(PVector accel) {
   // Draw acceleration vector
   PVector scaled_accel = accel.mult(50);
   stroke(120, 120, 120);
-  strokeWeight(5);
+  strokeWeight(4);
   fill(255, 0, 0);
   line(0, 0, 0, scaled_accel.x, scaled_accel.z, -scaled_accel.y);
-  arrow(0, 0, 0, scaled_accel.x, scaled_accel.z, -scaled_accel.y);
 }
-
-void arrow(float x1, float y1, float z1, float x2, float y2, float z2) {
-  line(x1, y1, z1, x2, y2, z2);
-  pushMatrix();
-  translate(x2, y2, z2);
-  float a = atan2(x1-x2, y2-y1);
-  rotate(a);
-  line(0, 0, 0, -10, -10, 0);
-  line(0, 0, 0, 10, -10, 0);
-  popMatrix();
-} 
