@@ -1,4 +1,3 @@
-import java.io.FileWriter;
 import java.io.*;
 import java.util.*;
 import toxi.geom.*;
@@ -7,7 +6,6 @@ import toxi.math.waves.*;
 import toxi.processing.*;
 import grafica.*;
 
-float [] q = new float [4];
 Quaternion quat = new Quaternion(1, 0, 0, 0);
 
 PFont font;
@@ -44,6 +42,7 @@ int time = 0;
 int timer = 0;
 
 File recordingFile = null;
+String[] recordingFiles = null;
 int recordingStartedMillis = 0;
 FileWriter fw;
 BufferedWriter bw;
@@ -52,15 +51,11 @@ PrintWriter pw;
 File playingFile = null;
 int playingStartedMillis = 0;
 
-String[] recordingFiles = null;
-
 void setup() 
 {
   size(1000, 800, P3D);
 
-  skate = loadShape("skateboard.obj");
-
-  //myPort = new Serial(this, "/dev/tty.usbmodemTEST1", 115200);  
+  skate = loadShape("skateboard.obj");  
   font = loadFont("CourierNew36.vlw"); 
   delay(100);
 
@@ -104,6 +99,8 @@ void setup()
 }
 
 void draw() {
+  // Read lines one-by-one from the recording reader (playback mode),
+  // or read the latest line (real-time log reading mode)
   if (playingFile != null) {
     try {
       line = reader.readLine();
@@ -145,7 +142,6 @@ void draw() {
       float acc_x = float(items[4]);
       float acc_y = float(items[5]);
       float acc_z = float(items[6]);
-
       accel = new PVector(acc_x, acc_y, acc_z);
 
       float gyro_x = float(items[7]);
@@ -153,11 +149,6 @@ void draw() {
       float gyro_z = float(items[9]);
 
       quat.set(w, x, y, z);
-
-      q[0] = w;
-      q[1] = x;
-      q[2] = y;
-      q[3] = z;
 
       // Accel Plot
 
@@ -209,21 +200,25 @@ void draw() {
   fill(color(255, 255, 255));
   stroke(color(255, 255, 255));
   if (recordingFile != null) {
-    text("Recording to " + recordingFile.getName(), 0, textAscent());
+    text("Recording to " + recordingFile.getName() + ", press [R] to finish", 0, textAscent());
   } else if (playingFile == null) {
     if (playingFile == null && recordingFiles != null) {
-      text("Select recording to play:", 0, 10);
-      for (int i = 0; i < recordingFiles.length; i++) {
-        text(i + ". " + recordingFiles[i], 0, textAscent() * (i + 2));
+      if (recordingFiles.length > 0) {
+        text("Select recording to play:", 0, textAscent());
+        for (int i = 0; i < recordingFiles.length; i++) {
+          text(i + ". " + recordingFiles[i], 0, textAscent() * (i + 2));
+        }
+      } else {
+        text("<no recordings>, press [P] to go back", 0, textAscent());
       }
     } else {
       text("Press [R] to record, [P] to play recording", 0, textAscent());
     }
   } else if (playingFile != null) {
     if (line != null) {
-      text("Playing " + playingFile.getName(), 0, textAscent());
+      text("Playing " + playingFile.getName() + ", press [P] to stop", 0, textAscent());
     } else {
-      text("Playback complete", 0, textAscent());
+      text("Playback complete, press [P] to go back", 0, textAscent());
     }
   }
 
@@ -322,25 +317,12 @@ void keyPressed() {
   }
 }
 
+// Lists recording files, last modified first
 ArrayList<String> listRecordings() throws IOException {
   FilenameFilter fileNameFilter = new FilenameFilter() {
     @Override
       public boolean accept(File dir, String name) {
-      if (name.startsWith("recording_") && name.lastIndexOf('.') > 0) {
-
-        // get last index for '.' char
-        int lastIndex = name.lastIndexOf('.');
-
-        // get extension
-        String str = name.substring(lastIndex);
-
-        // match path name extension
-        if (str.equals(".txt")) {
-          return true;
-        }
-      }
-
-      return false;
+      return (name.startsWith("recording_") && name.endsWith(".txt"));
     }
   };
 
@@ -354,20 +336,12 @@ ArrayList<String> listRecordings() throws IOException {
       public int compare(final File f1, final File f2) {
       return constantLastModifiedTimes.get(f2).compareTo(constantLastModifiedTimes.get(f1));
     }
-  }
-  );
+  });
+
   ArrayList<String> filesList = new ArrayList();
   for (final File f : files) {
     filesList.add(f.getName());
   }
-  return filesList;
-}
 
-String[] removeByIndex(String[] array, int index) {
-  int index2 = array.length-1;
-  String old = array[index];
-  array[index] = array[index2];
-  array[index2] = old;
-  array = shorten(array);
-  return array;
+  return filesList;
 }
