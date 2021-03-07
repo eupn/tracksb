@@ -68,18 +68,20 @@ impl MotionService {
     ) -> Result<(), super::BleError> {
         let binary_motion_data: MotionCharacteristicValue = motion_data.into();
 
-        ble.perform_command(|rc| {
-            let params = UpdateCharacteristicValueParameters {
-                service_handle: self.handle,
-                characteristic_handle: self.motion_char.handle,
-                offset: 0,
-                value: binary_motion_data.as_slice(),
-            };
+        let _result = ble
+            .perform_command(|rc| {
+                let params = UpdateCharacteristicValueParameters {
+                    service_handle: self.handle,
+                    characteristic_handle: self.motion_char.handle,
+                    offset: 0,
+                    value: binary_motion_data.as_slice(),
+                };
 
-            rc.update_characteristic_value(&params)
-                .map_err(|_| nb::Error::Other(()))
-        })
-        .await?;
+                rc.update_characteristic_value(&params)
+                    .map_err(|_| nb::Error::Other(()))
+            })
+            .await?;
+        // defmt::info!("{:?}", defmt::Debug2Format(&result));
 
         Ok(())
     }
@@ -126,10 +128,7 @@ impl MotionCharacteristic {
         ) = return_params
         {
             // TODO: check status
-            defmt::info!(
-                "Status: {:?}",
-                defmt::Debug2Format::<defmt::consts::U128>(&status)
-            );
+            defmt::info!("Status: {:?}", defmt::Debug2Format(&status));
             characteristic_handle
         } else {
             return Err(crate::ble::BleError::UnexpectedEvent);

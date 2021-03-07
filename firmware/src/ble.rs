@@ -32,10 +32,7 @@ pub fn check_status(status: &Status<stm32wb55::event::Status>) -> bool {
     let success = matches!(status, Status::Success);
 
     if !success {
-        defmt::warn!(
-            "BLE non-success: {:?}",
-            defmt::Debug2Format::<defmt::consts::U128>(&status)
-        );
+        defmt::warn!("BLE non-success: {:?}", defmt::Debug2Format(&status));
     }
 
     success
@@ -169,10 +166,7 @@ pub async fn set_advertisement(enabled: bool, ble: &mut Ble) -> Result<(), BleEr
                     .map_err(|_| nb::Error::Other(()))
             })
             .await?;
-        defmt::info!(
-            "Adv: {:?}",
-            defmt::Debug2Format::<defmt::consts::U128>(&res)
-        );
+        defmt::info!("Adv: {:?}", defmt::Debug2Format(&res));
     } else {
         ble.perform_command(|rc| rc.set_nondiscoverable()).await?;
     }
@@ -184,17 +178,11 @@ pub async fn process_event(ble: &mut Ble) -> Result<(), BleError> {
     let event = ble.receive_event().await?;
     match event {
         Packet::Event(Event::ConnectionComplete(cc)) => {
-            defmt::info!(
-                "Connected: {:?}",
-                defmt::Debug2Format::<defmt::consts::U128>(&cc)
-            );
+            defmt::info!("Connected: {:?}", defmt::Debug2Format(&cc));
         }
 
         Packet::Event(Event::DisconnectionComplete(dc)) => {
-            defmt::info!(
-                "Disconnected: {:?}",
-                defmt::Debug2Format::<defmt::consts::U128>(&dc)
-            );
+            defmt::info!("Disconnected: {:?}", defmt::Debug2Format(&dc));
 
             set_advertisement(true, ble).await?;
         }
@@ -205,7 +193,7 @@ pub async fn process_event(ble: &mut Ble) -> Result<(), BleError> {
                 server_rx_mtu,
             },
         ))) => {
-            defmt::info!("Mtu changed to {:usize}", server_rx_mtu);
+            defmt::info!("Mtu changed to {}", server_rx_mtu);
         }
 
         Packet::Event(Event::Vendor(Stm32Wb5xEvent::GattAttributeModified(
@@ -214,10 +202,7 @@ pub async fn process_event(ble: &mut Ble) -> Result<(), BleError> {
             defmt::info!("Gatt attribute modified");
         }
 
-        _ => defmt::warn!(
-            "Unhandled event: {:?}",
-            defmt::Debug2Format::<defmt::consts::U256>(&event)
-        ),
+        _ => defmt::warn!("Unhandled event: {:?}", defmt::Debug2Format(&event)),
     }
 
     Ok(())

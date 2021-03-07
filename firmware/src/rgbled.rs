@@ -3,8 +3,8 @@
 use embedded_hal::digital::v2::OutputPin;
 
 use crate::bsp::Rgb;
+use async_embedded_traits::delay::AsyncDelayMs;
 use core::convert::Infallible;
-use embedded_hal::blocking::delay::DelayMs;
 
 // TODO: try PWM for RGB pins
 
@@ -94,7 +94,7 @@ impl<
 }
 
 /// RGB LED flashing for startup.
-pub fn startup_animate(rgb: &mut Rgb, delay: &mut impl DelayMs<u32>) {
+pub async fn startup_animate(rgb: &mut Rgb, delay: &mut impl AsyncDelayMs<u32>) {
     rgb.set(LedColor::Red, false);
     rgb.set(LedColor::Green, false);
     rgb.set(LedColor::Blue, false);
@@ -105,6 +105,6 @@ pub fn startup_animate(rgb: &mut Rgb, delay: &mut impl DelayMs<u32>) {
         } else {
             LedColor::Green
         });
-        delay.delay_ms(50);
+        delay.async_delay_ms(50).await;
     }
 }
