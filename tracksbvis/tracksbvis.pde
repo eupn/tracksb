@@ -71,7 +71,7 @@ void setup()
   accel_plot.getXAxis().setAxisLabelText("time");
   accel_plot.getYAxis().setAxisLabelText("m/s^2");
   accel_plot.activatePanning();
-  accel_plot.setYLim(-10, 10);
+  accel_plot.setYLim(-30, 30);
   accel_plot.addLayer("x", new GPointsArray());
   accel_plot.getLayer("x").setPointColor(color(0, 0, 255));
   accel_plot.addLayer("y", new GPointsArray());
@@ -89,7 +89,7 @@ void setup()
   gyro_plot.getXAxis().setAxisLabelText("time");
   gyro_plot.getYAxis().setAxisLabelText("rad/s");
   gyro_plot.activatePanning();
-  gyro_plot.setYLim(-10, 10);
+  gyro_plot.setYLim(-30, 30);
   gyro_plot.addLayer("x", new GPointsArray());
   gyro_plot.getLayer("x").setPointColor(color(0, 0, 255));
   gyro_plot.addLayer("y", new GPointsArray());
