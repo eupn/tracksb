@@ -376,8 +376,8 @@ async fn imu_int() {
                     imu.init_imu(delay, IMU_REPORTING_INTERVAL_MS).await;
                     defmt::info!("BNO08x initialized");
                 } else {
-                    rgb_led.toggle(LedColor::Green);
                     if let Some(motion_data) = imu.motion_data(delay).await.unwrap() {
+                        rgb_led.toggle(LedColor::Green);
                         motion_data_queue.enqueue(motion_data).ok();
                         MOTION_SIGNAL.signal(());
                     }
