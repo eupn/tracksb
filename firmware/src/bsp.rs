@@ -63,7 +63,7 @@ pub type ImuIntPin = PB3<Input<PullUp>>;
 pub type ImuResetPin = PA15<Output<PushPull>>;
 pub type ImuSclPin = PA7<Alternate<AF4, Output<OpenDrain>>>;
 pub type ImuSdaPin = PB4<Alternate<AF4, Output<OpenDrain>>>;
-pub const IMU_I2C_SPEED: Hertz = Hertz(800_000);
+pub const IMU_I2C_SPEED: Hertz = Hertz(1_000_000);
 
 pub fn init_imu_interrupt(
     mut imu_int_pin: ImuIntPin,
