@@ -41,7 +41,7 @@ use stm32wb_hal::{
         ApbDivider, Config, HDivider, HseDivider, LptimClkSrc, PllConfig, PllSrc, Rcc,
         RfWakeupClock, RtcClkSrc, StopWakeupClock, SysClkSrc,
     },
-    rtc, stm32,
+    rtc, smps, stm32,
     tl_mbox::{shci::ShciBleInitCmdParam, TlMbox},
 };
 use tracksb::{
@@ -80,9 +80,7 @@ static BLE: SyncWrapper<Ble> = SyncWrapper::new_none();
 static SERVICE: SyncWrapper<MotionService> = SyncWrapper::new_none();
 static BATT_SERVICE: SyncWrapper<BatteryService> = SyncWrapper::new_none();
 
-static BLE_READY_SIGNAL: Signal<()> = Signal::new();
 static MOTION_SIGNAL: Signal<()> = Signal::new();
-
 static MOTION_DATA_QUEUE: SyncWrapper<
     Queue<MotionData, consts::U32, u8, heapless::spsc::SingleCore>,
 > = SyncWrapper::new_none();
@@ -236,8 +234,6 @@ async fn run_main(mut rcc: Rcc, mbox: TlMbox, ipcc: Ipcc) {
     unsafe { &mut *BLE.0.get() }.replace(ble);
     unsafe { &mut *SERVICE.0.get() }.replace(service);
     unsafe { &mut *BATT_SERVICE.0.get() }.replace(batt_service);
-
-    BLE_READY_SIGNAL.signal(());
 
     loop {
         let ble = unsafe { &mut *BLE.0.get() };
@@ -498,6 +494,11 @@ fn main() -> ! {
         .lptim2_src(LptimClkSrc::Lse);
 
     let mut rcc = rcc.apply_clock_config(clock_config, &mut dp.FLASH.constrain().acr);
+
+    smps::Smps::enable();
+    while !smps::Smps::is_enabled() {
+        cortex_m::asm::nop();
+    }
 
     // RTC is required for proper operation of BLE stack
     let _rtc = rtc::Rtc::rtc(dp.RTC, &mut rcc);
