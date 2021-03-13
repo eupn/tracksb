@@ -1,22 +1,18 @@
 //! Board Support Package (pins and peripherals)
 
-use crate::rgbled::RgbLed;
 use cortex_m::peripheral::NVIC;
 use embassy_stm32wb55::i2c::{i2c1::AsyncI2c as AsyncI2c1, i2c3::AsyncI2c as AsyncI2c3};
 use stm32wb_hal::{
     gpio::{
-        gpioa::{PA15, PA4, PA5, PA6, PA7},
+        gpioa::{PA15, PA5, PA7},
         gpiob::{PB1, PB3, PB4, PB5, PB6, PB7},
-        Alternate, Edge, ExtiPin, Input, OpenDrain, Output, PullUp, PushPull, AF4,
+        Alternate, Edge, ExtiPin, Input, OpenDrain, Output, PullUp, PushPull, AF1, AF4,
     },
     pac::{Interrupt, EXTI, I2C1, I2C3, SYSCFG},
     time::Hertz,
 };
 
-pub type RedLedPin = PA4<Output<PushPull>>;
-pub type GreenLedPin = PA5<Output<PushPull>>;
-pub type BlueLedPin = PA6<Output<PushPull>>;
-pub type Rgb = RgbLed<RedLedPin, GreenLedPin, BlueLedPin>;
+pub type StatusLedPin = PA5<Alternate<AF1, Output<PushPull>>>;
 
 pub type PullUpsPin = PB5<Output<PushPull>>;
 pub type PmicI2cPort = I2C1;

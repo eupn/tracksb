@@ -28,7 +28,7 @@ use stm32wb_hal::{
         DmaExt,
     },
     flash::FlashExt,
-    gpio::{ExtiPin, State},
+    gpio::ExtiPin,
     i2c::{Error as I2cError, I2c},
     interrupt,
     ipcc::Ipcc,
@@ -49,12 +49,12 @@ use tracksb::{
     bsp,
     bsp::{
         ImuIntPin, ImuResetPin, ImuSclPin, ImuSdaPin, PmicI2cSclPin, PmicI2cSdaPin, PmicIntPin,
-        PullUpsPin, Rgb, IMU_I2C_SPEED,
+        PullUpsPin, IMU_I2C_SPEED,
     },
     imu::{ImuWrapper, MotionData, IMU_REPORTING_INTERVAL_MS, IMU_REPORTING_RATE_HZ},
+    led::StatusLed,
     pmic,
     pmic::{wait_init_pmic, ImuPowerState, Pmic},
-    rgbled::{startup_animate, LedColor, RgbLed},
 };
 
 struct SyncWrapper<T>(pub UnsafeCell<Option<T>>);
@@ -66,7 +66,7 @@ impl<T> SyncWrapper<T> {
 
 unsafe impl<T> Sync for SyncWrapper<T> {}
 
-static RGB: SyncWrapper<Rgb> = SyncWrapper::new_none();
+static STATUS_LED: SyncWrapper<StatusLed> = SyncWrapper::new_none();
 static PMIC: SyncWrapper<Pmic<pmic::Initialized, I2cError, bsp::PmicI2c>> = SyncWrapper::new_none();
 static PMIC_INT_PIN: SyncWrapper<PmicIntPin> = SyncWrapper::new_none();
 static IMU: SyncWrapper<ImuWrapper<I2cError, bsp::ImuI2c, bsp::ImuResetPin>> =
@@ -91,23 +91,12 @@ async fn run_main(mut rcc: Rcc, mbox: TlMbox, ipcc: Ipcc) {
 
     let mut dp = unsafe { Peripherals::steal() };
     let mut gpioa = dp.GPIOA.split(&mut rcc);
-    let red_led = gpioa.pa4.into_push_pull_output_with_state(
-        &mut gpioa.moder,
-        &mut gpioa.otyper,
-        State::High,
-    );
-    let green_led = gpioa.pa5.into_push_pull_output_with_state(
-        &mut gpioa.moder,
-        &mut gpioa.otyper,
-        State::High,
-    );
-    let blue_led = gpioa.pa6.into_push_pull_output_with_state(
-        &mut gpioa.moder,
-        &mut gpioa.otyper,
-        State::High,
-    );
-    let rgb_led = RgbLed::new(red_led, green_led, blue_led);
-    unsafe { &mut *RGB.0.get() }.replace(rgb_led);
+    let green_led = gpioa
+        .pa5
+        .into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper)
+        .into_af1(&mut gpioa.moder, &mut gpioa.afrl);
+    let status_led = StatusLed::new(dp.TIM2, green_led, &mut rcc);
+    unsafe { &mut *STATUS_LED.0.get() }.replace(status_led);
 
     let mut gpiob = dp.GPIOB.split(&mut rcc);
     let dma_channels = dp.DMA1.split(&mut rcc, dp.DMAMUX1);
@@ -166,14 +155,6 @@ async fn run_main(mut rcc: Rcc, mbox: TlMbox, ipcc: Ipcc) {
         &mut dp.EXTI,
     )
     .await;
-
-    let pmic_delay = unsafe { &mut *PMIC_DELAY.0.get() };
-    let rgb_led = unsafe { &mut *RGB.0.get() };
-    if let Some(pmic_delay) = pmic_delay {
-        if let Some(rgb_led) = rgb_led {
-            startup_animate(rgb_led, pmic_delay).await;
-        }
-    }
 
     defmt::info!(
         "Initialized PMIC, MCU at {} MHz and IMU at {} Hz",
@@ -356,12 +337,12 @@ async fn imu_int() {
             let pmic = unsafe { &mut *PMIC.0.get() };
             let imu = unsafe { &mut *IMU.0.get() };
             let delay = unsafe { &mut *IMU_DELAY.0.get() };
-            let rgb_led = unsafe { &mut *RGB.0.get() };
+            let status_led = unsafe { &mut *STATUS_LED.0.get() };
             let motion_data_queue = unsafe { &mut *MOTION_DATA_QUEUE.0.get() };
             if let Some(pmic) = pmic;
             if let Some(imu) = imu;
             if let Some(delay) = delay;
-            if let Some(rgb_led) = rgb_led;
+            if let Some(status_led) = status_led;
             if let Some(motion_data_queue) = motion_data_queue;
             then {
                 // Ignore interrupts if IMU isn't enabled
@@ -375,12 +356,10 @@ async fn imu_int() {
                     defmt::info!("BNO08x booted, initializing...");
                     imu.init_imu(delay, IMU_REPORTING_INTERVAL_MS).await;
                     defmt::info!("BNO08x initialized");
-                } else {
-                    if let Some(motion_data) = imu.motion_data(delay).await.unwrap() {
-                        rgb_led.toggle(LedColor::Green);
-                        motion_data_queue.enqueue(motion_data).ok();
-                        MOTION_SIGNAL.signal(());
-                    }
+                } else if let Some(motion_data) = imu.motion_data(delay).await.unwrap() {
+                    status_led.tick_animation();
+                    motion_data_queue.enqueue(motion_data).ok();
+                    MOTION_SIGNAL.signal(());
                 }
             }
         }
@@ -441,9 +420,9 @@ async fn imu_on_off(
         pmic.set_imu_power(false).await.unwrap();
         imu.deinit();
 
-        let rgb_led = unsafe { &mut *RGB.0.get() };
-        if let Some(rgb_led) = rgb_led {
-            rgb_led.turn_off_all();
+        let status_led = unsafe { &mut *STATUS_LED.0.get() };
+        if let Some(status_led) = status_led {
+            status_led.turn_off();
         }
         // TODO: put the MCU into deep sleep here (STOP1 mode, for example)
     }
