@@ -40,8 +40,6 @@ for board flashing and debugging via RTT logging.
 
 Here are some stuff that should be done or improved, in no particular order.
 
-- [x] Stream quaternions via USB virtual serial port
-  - [ ] Port to RTIC v6
 - [x] Validate and fix IMU axes and quaternion data
 - [x] Use interrupts for communication with PMIC and IMU
   - [x] Poll IMU via interrupt
@@ -65,9 +63,10 @@ Here are some stuff that should be done or improved, in no particular order.
       - [ ] Avoid deadlocks
 - [x] PMIC
   - [x] Implement battery gas gauge via built-in coulomb counters
-- [ ] Flash RGB LED instead of simple on/off
+- [x] Flash RGB LED instead of simple on/off
   - [x] Simple flash
-  - [ ] PWM effects
+  - [x] Red light on HardFault
+  - [x] PWM effects
 - [ ] Optimize power consumption and use low-power modes
   - [x] Fix debugging/RTT in sleep mode
   - [x] LPTIM-based delays instead of dumb loops
