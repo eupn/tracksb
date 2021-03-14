@@ -20,6 +20,7 @@ use embassy_stm32wb55::{
     delay::{lptim1::LptimDelay as Lptim1Delay, lptim2::LptimDelay as Lptim2Delay},
     i2c::i2c3::AsyncI2c as AsyncI2c3,
 };
+use futures_intrusive::sync::LocalMutex;
 use heapless::{consts, spsc::Queue};
 use if_chain::if_chain;
 use stm32wb_hal::{
@@ -67,7 +68,7 @@ impl<T> SyncWrapper<T> {
 unsafe impl<T> Sync for SyncWrapper<T> {}
 
 static STATUS_LED: SyncWrapper<StatusLed> = SyncWrapper::new_none();
-static PMIC: SyncWrapper<Pmic<pmic::Initialized, I2cError, bsp::PmicI2c>> = SyncWrapper::new_none();
+static mut PMIC: Option<LocalMutex<Pmic<pmic::Initialized, I2cError, bsp::PmicI2c>>> = None;
 static PMIC_INT_PIN: SyncWrapper<PmicIntPin> = SyncWrapper::new_none();
 static IMU: SyncWrapper<ImuWrapper<I2cError, bsp::ImuI2c, bsp::ImuResetPin>> =
     SyncWrapper::new_none();
@@ -76,7 +77,7 @@ static IMU_INT_PIN: SyncWrapper<ImuIntPin> = SyncWrapper::new_none();
 static PMIC_DELAY: SyncWrapper<Lptim1Delay> = SyncWrapper::new_none();
 static IMU_DELAY: SyncWrapper<Lptim2Delay> = SyncWrapper::new_none();
 
-static BLE: SyncWrapper<Ble> = SyncWrapper::new_none();
+static mut BLE: Option<LocalMutex<Ble>> = None;
 static SERVICE: SyncWrapper<MotionService> = SyncWrapper::new_none();
 static BATT_SERVICE: SyncWrapper<BatteryService> = SyncWrapper::new_none();
 
@@ -85,6 +86,9 @@ static MOTION_DATA_QUEUE: SyncWrapper<
     Queue<MotionData, consts::U32, u8, heapless::spsc::SingleCore>,
 > = SyncWrapper::new_none();
 
+/// Initializes the peripherals (PMIC, IMU, BLE, etc.) and handles BLE events as well as
+/// updating of IMU motion data in the corresponding BLE service.
+// TODO: break this task up into one for events and a one for motion data, if possible
 #[task]
 async fn run_main(mut rcc: Rcc, mbox: TlMbox, ipcc: Ipcc) {
     defmt::info!("Running main");
@@ -212,13 +216,14 @@ async fn run_main(mut rcc: Rcc, mbox: TlMbox, ipcc: Ipcc) {
 
     defmt::info!("BLE Services Ready");
 
-    unsafe { &mut *BLE.0.get() }.replace(ble);
+    unsafe { BLE = Some(LocalMutex::new(ble, true)) };
     unsafe { &mut *SERVICE.0.get() }.replace(service);
     unsafe { &mut *BATT_SERVICE.0.get() }.replace(batt_service);
 
     loop {
-        let ble = unsafe { &mut *BLE.0.get() };
-        if let Some(ble) = ble {
+        if let Some(ble) = unsafe { &mut BLE } {
+            let ble = &mut *ble.lock().await;
+
             let mut motion_data = None;
             {
                 let motion_signal_fut = MOTION_SIGNAL.wait();
@@ -246,16 +251,6 @@ async fn run_main(mut rcc: Rcc, mbox: TlMbox, ipcc: Ipcc) {
                     service.update(ble, &motion_data).await.unwrap();
                 }
             }
-
-            /*
-            let batt_service = unsafe { &mut *BATT_SERVICE.0.get() };
-            let pmic = unsafe { &mut *PMIC.0.get() };
-            if let Some(pmic) = pmic {
-                if let Some(batt_service) = batt_service {
-                    let level = pmic.battery_level().await.unwrap();
-                    batt_service.update(ble, level as u8).await.unwrap();
-                }
-            }*/
         }
     }
 }
@@ -280,7 +275,9 @@ async fn init_pmic(
         let pmic_int_pin = bsp::init_pmic_interrupt(pmic_int_pin, syscfg, exti);
 
         unsafe { &mut *PMIC_INT_PIN.0.get() }.replace(pmic_int_pin);
-        unsafe { &mut *PMIC.0.get() }.replace(pmic);
+        unsafe {
+            PMIC = Some(LocalMutex::new(pmic, true));
+        }
     }
 }
 
@@ -317,6 +314,38 @@ async fn init_imu(
     }
 }
 
+/// Updates battery level value in Battery Level BLE service.
+#[task]
+async fn battery_level() {
+    loop {
+        if let Some(pmic_delay) = unsafe { &mut *PMIC_DELAY.0.get() } {
+            defmt::info!("Waiting for a delay");
+            pmic_delay.async_delay_ms(1000_u32).await;
+            defmt::info!("Delay waited");
+
+            if let Some(ble) = unsafe { &mut BLE } {
+                defmt::info!("Locking BLE mutex");
+                let ble = &mut *ble.lock().await;
+                defmt::info!("Acquired BLE mutex");
+                if let Some(pmic) = unsafe { &mut PMIC } {
+                    defmt::info!("Locking PMIC mutex");
+                    let pmic = &mut *pmic.lock().await;
+                    defmt::info!("Acquired PMIC mutex");
+                    if_chain! {
+                        let batt_service = unsafe { &mut *BATT_SERVICE.0.get() };
+                        if let Some(batt_service) = batt_service;
+                        then {
+                            let level = pmic.battery_level().await.unwrap();
+                            defmt::info!("Updating battery level {}%", level);
+                            batt_service.update(ble, level as u8).await.unwrap();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// IMU interrupt handler task (EXTI3)
 #[task]
 async fn imu_int() {
@@ -334,12 +363,12 @@ async fn imu_int() {
         }
 
         if_chain! {
-            let pmic = unsafe { &mut *PMIC.0.get() };
+            if let Some(pmic) = unsafe { &mut PMIC };
+            let mut pmic = pmic.lock().await;
             let imu = unsafe { &mut *IMU.0.get() };
             let delay = unsafe { &mut *IMU_DELAY.0.get() };
             let status_led = unsafe { &mut *STATUS_LED.0.get() };
             let motion_data_queue = unsafe { &mut *MOTION_DATA_QUEUE.0.get() };
-            if let Some(pmic) = pmic;
             if let Some(imu) = imu;
             if let Some(delay) = delay;
             if let Some(status_led) = status_led;
@@ -382,23 +411,25 @@ async fn pmic_int() {
             }
         }
 
-        if_chain! {
-            let pmic = unsafe { &mut *PMIC.0.get() };
-            if let Some(pmic) = pmic;
-            let imu_power_state = pmic.process_irqs().await.unwrap();
-            let imu = unsafe { &mut *IMU.0.get() };
-            if let Some(imu) = imu;
-            let delay = unsafe { &mut *PMIC_DELAY.0.get() };
-            if let Some(delay) = delay;
-            then {
-                // Process IRQs and manage IMU power if it was a power button IRQ
-                match imu_power_state {
-                    ImuPowerState::Shutdown => imu_on_off(pmic, imu, delay, false).await,
-                    ImuPowerState::Enabled => imu_on_off(pmic, imu, delay, true).await,
-                    ImuPowerState::Unchanged => (),
-                }
+        if let Some(pmic) = unsafe { &mut PMIC } {
+            let pmic = &mut *pmic.lock().await;
 
-                pmic.show_current().await.unwrap();
+            if_chain! {
+                let imu_power_state = pmic.process_irqs().await.unwrap();
+                let imu = unsafe { &mut *IMU.0.get() };
+                if let Some(imu) = imu;
+                let delay = unsafe { &mut *IMU_DELAY.0.get() };
+                if let Some(delay) = delay;
+                then {
+                    // Process IRQs and manage IMU power if it was a power button IRQ
+                    match imu_power_state {
+                        ImuPowerState::Shutdown => imu_on_off(pmic, imu, delay, false).await,
+                        ImuPowerState::Enabled => imu_on_off(pmic, imu, delay, true).await,
+                        ImuPowerState::Unchanged => (),
+                    }
+
+                    pmic.show_current().await.unwrap();
+                }
             }
         }
     }
@@ -502,6 +533,7 @@ fn main() -> ! {
         spawner.spawn(run_main(rcc, mbox, ipcc)).unwrap();
         spawner.spawn(imu_int()).unwrap();
         spawner.spawn(pmic_int()).unwrap();
+        spawner.spawn(battery_level()).unwrap();
     });
 }
 
