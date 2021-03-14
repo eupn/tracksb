@@ -54,13 +54,13 @@ Here are some stuff that should be done or improved, in no particular order.
   - [x] BLE
     - [x] Stream quaternions via GATT service with one characteristic
     - [x] Stream accelerometer and gyroscope data
-    - [ ] Battery level service
-      - [ ] Fix race condition against PMIC (access PMIC exclusively from one task?)
+    - [x] Battery level service
+      - [x] Fix race condition against PMIC (access PMIC exclusively from one task?)
+      - [x] Fix being locked on BLE mutex if there's no motion data events (IMU disabled)
     - [ ] Device Info Service
   - [ ] Cleanup `static mut` and `unsafe` code
-    - [ ] Use async mutex for shared resources
-      - [`futures-intrusive`](https://crates.io/crates/futures-intrusive)?
-      - [ ] Avoid deadlocks
+    - [x] Use async mutex for resources shared between tasks
+      - [x] [`futures-intrusive`](https://crates.io/crates/futures-intrusive)?
 - [x] PMIC
   - [x] Implement battery gas gauge via built-in coulomb counters
 - [x] Flash RGB LED instead of simple on/off
