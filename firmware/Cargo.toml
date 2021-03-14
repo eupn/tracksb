@@ -3,7 +3,7 @@ authors = ["Evgenii P. <eupn@protonmail.com>"]
 name = "tracksb"
 description = "A firmware for skateboard tracker board"
 edition = "2018"
-version = "0.1.1"
+version = "0.1.2"
 
 [dependencies]
 heapless = "0.6"
@@ -15,6 +15,7 @@ bluetooth-hci       = { version = "0.1.0" }
 embassy = { path = "../../embassy/embassy" }
 embassy-stm32wb55 = { path = "../../embassy/embassy-stm32wb55", features = ["55", "defmt"] }
 futures = { version = "0.3", default-features = false, features = ["async-await"] }
+futures-intrusive = { version = "0.4.0", default-features = false }
 #embassy = { git = "https://github.com/eupn/embassy.git", branch = "add-stm32wb55" }
 #embassy-stm32wb55 = { git = "https://github.com/eupn/embassy.git", branch = "add-stm32wb55", features = ["55"] }
 stm32wb55           = { git = "https://github.com/eupn/stm32wb55.git" }

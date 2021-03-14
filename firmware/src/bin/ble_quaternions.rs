@@ -12,7 +12,7 @@ use async_embedded_traits::delay::AsyncDelayMs;
 use core::cell::UnsafeCell;
 use cortex_m_rt::{entry, exception, ExceptionFrame};
 use embassy::{
-    executor::{task, Executor},
+    executor::{task, Executor, Spawner},
     util::{Forever, InterruptFuture, Signal},
 };
 use embassy_stm32wb55::{
@@ -20,6 +20,8 @@ use embassy_stm32wb55::{
     delay::{lptim1::LptimDelay as Lptim1Delay, lptim2::LptimDelay as Lptim2Delay},
     i2c::i2c3::AsyncI2c as AsyncI2c3,
 };
+use futures::{future::Either, pin_mut};
+use futures_intrusive::sync::LocalMutex;
 use heapless::{consts, spsc::Queue};
 use if_chain::if_chain;
 use stm32wb_hal::{
@@ -67,7 +69,7 @@ impl<T> SyncWrapper<T> {
 unsafe impl<T> Sync for SyncWrapper<T> {}
 
 static STATUS_LED: SyncWrapper<StatusLed> = SyncWrapper::new_none();
-static PMIC: SyncWrapper<Pmic<pmic::Initialized, I2cError, bsp::PmicI2c>> = SyncWrapper::new_none();
+static mut PMIC: Option<LocalMutex<Pmic<pmic::Initialized, I2cError, bsp::PmicI2c>>> = None;
 static PMIC_INT_PIN: SyncWrapper<PmicIntPin> = SyncWrapper::new_none();
 static IMU: SyncWrapper<ImuWrapper<I2cError, bsp::ImuI2c, bsp::ImuResetPin>> =
     SyncWrapper::new_none();
@@ -76,7 +78,7 @@ static IMU_INT_PIN: SyncWrapper<ImuIntPin> = SyncWrapper::new_none();
 static PMIC_DELAY: SyncWrapper<Lptim1Delay> = SyncWrapper::new_none();
 static IMU_DELAY: SyncWrapper<Lptim2Delay> = SyncWrapper::new_none();
 
-static BLE: SyncWrapper<Ble> = SyncWrapper::new_none();
+static mut BLE: Option<LocalMutex<Ble>> = None;
 static SERVICE: SyncWrapper<MotionService> = SyncWrapper::new_none();
 static BATT_SERVICE: SyncWrapper<BatteryService> = SyncWrapper::new_none();
 
@@ -85,8 +87,13 @@ static MOTION_DATA_QUEUE: SyncWrapper<
     Queue<MotionData, consts::U32, u8, heapless::spsc::SingleCore>,
 > = SyncWrapper::new_none();
 
+static BATTERY_LEVEL_UPDATE_SIGNAL: Signal<()> = Signal::new();
+const BATTERY_LEVEL_UPDATE_INTERVAL_MS: u32 = 10_000;
+
+/// Initializes the peripherals (PMIC, IMU, BLE, etc.) and
+/// spawns the rest of the subtasks.
 #[task]
-async fn run_main(mut rcc: Rcc, mbox: TlMbox, ipcc: Ipcc) {
+async fn run_main(spawner: Spawner, mut rcc: Rcc, mbox: TlMbox, ipcc: Ipcc) {
     defmt::info!("Running main");
 
     let mut dp = unsafe { Peripherals::steal() };
@@ -212,52 +219,14 @@ async fn run_main(mut rcc: Rcc, mbox: TlMbox, ipcc: Ipcc) {
 
     defmt::info!("BLE Services Ready");
 
-    unsafe { &mut *BLE.0.get() }.replace(ble);
+    unsafe { BLE = Some(LocalMutex::new(ble, true)) };
     unsafe { &mut *SERVICE.0.get() }.replace(service);
     unsafe { &mut *BATT_SERVICE.0.get() }.replace(batt_service);
 
-    loop {
-        let ble = unsafe { &mut *BLE.0.get() };
-        if let Some(ble) = ble {
-            let mut motion_data = None;
-            {
-                let motion_signal_fut = MOTION_SIGNAL.wait();
-                let events_fut = tracksb::ble::process_event(ble);
-                futures::pin_mut!(events_fut);
-
-                match futures::future::select(motion_signal_fut, events_fut).await {
-                    futures::future::Either::Left(_) => {
-                        let motion_data_queue = unsafe { &mut *MOTION_DATA_QUEUE.0.get() };
-                        if let Some(motion_data_queue) = motion_data_queue {
-                            motion_data = motion_data_queue.dequeue();
-                        }
-                    }
-                    futures::future::Either::Right((e, _)) => {
-                        e.unwrap();
-                    }
-                }
-            }
-
-            if_chain! {
-                if let Some(motion_data) = motion_data;
-                let service = unsafe { &mut *SERVICE.0.get() };
-                if let Some(service) = service;
-                then {
-                    service.update(ble, &motion_data).await.unwrap();
-                }
-            }
-
-            /*
-            let batt_service = unsafe { &mut *BATT_SERVICE.0.get() };
-            let pmic = unsafe { &mut *PMIC.0.get() };
-            if let Some(pmic) = pmic {
-                if let Some(batt_service) = batt_service {
-                    let level = pmic.battery_level().await.unwrap();
-                    batt_service.update(ble, level as u8).await.unwrap();
-                }
-            }*/
-        }
-    }
+    spawner.spawn(imu_int()).unwrap();
+    spawner.spawn(pmic_int()).unwrap();
+    spawner.spawn(ble_task()).unwrap();
+    spawner.spawn(battery_level()).unwrap();
 }
 
 async fn init_pmic(
@@ -280,7 +249,9 @@ async fn init_pmic(
         let pmic_int_pin = bsp::init_pmic_interrupt(pmic_int_pin, syscfg, exti);
 
         unsafe { &mut *PMIC_INT_PIN.0.get() }.replace(pmic_int_pin);
-        unsafe { &mut *PMIC.0.get() }.replace(pmic);
+        unsafe {
+            PMIC = Some(LocalMutex::new(pmic, true));
+        }
     }
 }
 
@@ -317,6 +288,97 @@ async fn init_imu(
     }
 }
 
+/// Manages the BLE resource.
+#[task]
+async fn ble_task() {
+    #[derive(defmt::Format)]
+    enum UpdateAction {
+        BleEvents,
+        BatteryLevel,
+        MotionData,
+    }
+
+    loop {
+        if let Some(ble) = unsafe { &mut BLE } {
+            let mut ble = ble.lock().await;
+            let update_action = {
+                let events_fut = tracksb::ble::process_event(&mut *ble);
+                pin_mut!(events_fut);
+                let bat_sig_fut = BATTERY_LEVEL_UPDATE_SIGNAL.wait();
+                pin_mut!(bat_sig_fut);
+                let mot_sig_fut = MOTION_SIGNAL.wait();
+                pin_mut!(mot_sig_fut);
+
+                let events_fut_w_bat = futures::future::select(events_fut, bat_sig_fut);
+                let all_fut = futures::future::select(events_fut_w_bat, mot_sig_fut);
+                match all_fut.await {
+                    // Got either new BLE event or battery level update
+                    Either::Left((events_bat_fut, _)) => match events_bat_fut {
+                        Either::Left((e, _)) => {
+                            e.unwrap();
+                            UpdateAction::BleEvents
+                        }
+                        Either::Right(_) => UpdateAction::BatteryLevel,
+                    },
+                    // Got motion data
+                    Either::Right(_) => UpdateAction::MotionData,
+                }
+            };
+
+            match update_action {
+                UpdateAction::BleEvents => (),
+                UpdateAction::BatteryLevel => update_battery_level(&mut *ble).await,
+                UpdateAction::MotionData => update_motion_data(&mut *ble).await,
+            }
+
+            core::mem::drop(ble);
+        }
+    }
+}
+
+/// Flushes the motion data queue into the BLE motion service.
+async fn update_motion_data(ble: &mut Ble) {
+    if_chain! {
+        let motion_data_queue = unsafe { &mut *MOTION_DATA_QUEUE.0.get() };
+        let service = unsafe { &mut *SERVICE.0.get() };
+        if let Some(service) = service;
+        if let Some(motion_data_queue) = motion_data_queue;
+        then {
+            while let Some(motion_data) = motion_data_queue.dequeue() {
+                service.update(ble, &motion_data).await.unwrap();
+            }
+        }
+    }
+}
+
+/// Reads current battery level from PMIC and updates the BLE service.
+async fn update_battery_level(ble: &mut Ble) {
+    if_chain! {
+        if let Some(pmic) = unsafe { &mut PMIC };
+        let pmic = &mut *pmic.lock().await;
+        let batt_service = unsafe { &mut *BATT_SERVICE.0.get() };
+        if let Some(batt_service) = batt_service;
+        then {
+            let level = pmic.battery_level().await.unwrap();
+            defmt::info!("Updating battery level {}%", level);
+            batt_service.update(ble, level as u8).await.unwrap();
+        }
+    }
+}
+
+/// A timer task that signals for battery level update.
+#[task]
+async fn battery_level() {
+    loop {
+        if let Some(pmic_delay) = unsafe { &mut *PMIC_DELAY.0.get() } {
+            pmic_delay
+                .async_delay_ms(BATTERY_LEVEL_UPDATE_INTERVAL_MS)
+                .await;
+            BATTERY_LEVEL_UPDATE_SIGNAL.signal(());
+        }
+    }
+}
+
 /// IMU interrupt handler task (EXTI3)
 #[task]
 async fn imu_int() {
@@ -334,12 +396,12 @@ async fn imu_int() {
         }
 
         if_chain! {
-            let pmic = unsafe { &mut *PMIC.0.get() };
+            if let Some(pmic) = unsafe { &mut PMIC };
+            let mut pmic = pmic.lock().await;
             let imu = unsafe { &mut *IMU.0.get() };
             let delay = unsafe { &mut *IMU_DELAY.0.get() };
             let status_led = unsafe { &mut *STATUS_LED.0.get() };
             let motion_data_queue = unsafe { &mut *MOTION_DATA_QUEUE.0.get() };
-            if let Some(pmic) = pmic;
             if let Some(imu) = imu;
             if let Some(delay) = delay;
             if let Some(status_led) = status_led;
@@ -382,23 +444,25 @@ async fn pmic_int() {
             }
         }
 
-        if_chain! {
-            let pmic = unsafe { &mut *PMIC.0.get() };
-            if let Some(pmic) = pmic;
-            let imu_power_state = pmic.process_irqs().await.unwrap();
-            let imu = unsafe { &mut *IMU.0.get() };
-            if let Some(imu) = imu;
-            let delay = unsafe { &mut *PMIC_DELAY.0.get() };
-            if let Some(delay) = delay;
-            then {
-                // Process IRQs and manage IMU power if it was a power button IRQ
-                match imu_power_state {
-                    ImuPowerState::Shutdown => imu_on_off(pmic, imu, delay, false).await,
-                    ImuPowerState::Enabled => imu_on_off(pmic, imu, delay, true).await,
-                    ImuPowerState::Unchanged => (),
-                }
+        if let Some(pmic) = unsafe { &mut PMIC } {
+            let pmic = &mut *pmic.lock().await;
 
-                pmic.show_current().await.unwrap();
+            if_chain! {
+                let imu_power_state = pmic.process_irqs().await.unwrap();
+                let imu = unsafe { &mut *IMU.0.get() };
+                if let Some(imu) = imu;
+                let delay = unsafe { &mut *IMU_DELAY.0.get() };
+                if let Some(delay) = delay;
+                then {
+                    // Process IRQs and manage IMU power if it was a power button IRQ
+                    match imu_power_state {
+                        ImuPowerState::Shutdown => imu_on_off(pmic, imu, delay, false).await,
+                        ImuPowerState::Enabled => imu_on_off(pmic, imu, delay, true).await,
+                        ImuPowerState::Unchanged => (),
+                    }
+
+                    pmic.show_current().await.unwrap();
+                }
             }
         }
     }
@@ -499,9 +563,7 @@ fn main() -> ! {
 
     let executor = EXECUTOR.put(Executor::new());
     executor.run(|spawner| {
-        spawner.spawn(run_main(rcc, mbox, ipcc)).unwrap();
-        spawner.spawn(imu_int()).unwrap();
-        spawner.spawn(pmic_int()).unwrap();
+        spawner.spawn(run_main(spawner, rcc, mbox, ipcc)).unwrap();
     });
 }
 
