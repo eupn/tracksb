@@ -1,4 +1,7 @@
-use bluetooth_hci::event::command::ReturnParameters;
+use bluetooth_hci::{
+    event::command::{CommandComplete, ReturnParameters},
+    Event,
+};
 use embassy_stm32wb55::ble::Ble;
 use stm32wb55::{
     event::command::{GattCharacteristic, GattService},
@@ -32,17 +35,21 @@ impl BatteryService {
             })
             .await?;
 
-        let handle = if let ReturnParameters::Vendor(
-            stm32wb55::event::command::ReturnParameters::GattAddService(GattService {
-                status,
-                service_handle,
-            }),
-        ) = return_params
+        let handle = if let Event::CommandComplete(CommandComplete {
+            return_params:
+                ReturnParameters::Vendor(stm32wb55::event::command::ReturnParameters::GattAddService(
+                    GattService {
+                        status,
+                        service_handle,
+                    },
+                )),
+            ..
+        }) = return_params
         {
             super::check_status(&status);
             service_handle
         } else {
-            return Err(crate::ble::BleError::UnexpectedEvent);
+            return Err(crate::ble::BleError::UnexpectedPacket);
         };
 
         let batt_char = BatteryLevelCharacteristic::new(handle, ble).await?;
@@ -83,7 +90,7 @@ impl BatteryLevelCharacteristic {
         service_handle: ServiceHandle,
         ble: &mut Ble,
     ) -> Result<BatteryLevelCharacteristic, super::BleError> {
-        let return_params = ble
+        let res = ble
             .perform_command(|rc| {
                 rc.add_characteristic(&AddCharacteristicParameters {
                     service_handle,
@@ -100,19 +107,23 @@ impl BatteryLevelCharacteristic {
             })
             .await?;
 
-        let handle = if let ReturnParameters::Vendor(
-            stm32wb55::event::command::ReturnParameters::GattAddCharacteristic(
-                GattCharacteristic {
-                    status,
-                    characteristic_handle,
-                },
-            ),
-        ) = return_params
+        let handle = if let Event::CommandComplete(CommandComplete {
+            return_params:
+                ReturnParameters::Vendor(
+                    stm32wb55::event::command::ReturnParameters::GattAddCharacteristic(
+                        GattCharacteristic {
+                            status,
+                            characteristic_handle,
+                        },
+                    ),
+                ),
+            ..
+        }) = res
         {
             super::check_status(&status);
             characteristic_handle
         } else {
-            return Err(crate::ble::BleError::UnexpectedEvent);
+            return Err(crate::ble::BleError::UnexpectedPacket);
         };
 
         ble.perform_command(|rc| {

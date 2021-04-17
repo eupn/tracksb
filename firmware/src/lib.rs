@@ -1,5 +1,6 @@
 #![no_std]
 #![feature(trait_alias)]
+#![feature(min_type_alias_impl_trait)]
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 

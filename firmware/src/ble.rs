@@ -1,6 +1,6 @@
 use crate::ble::batt_service::BatteryService;
 use bluetooth_hci::{
-    event::command::ReturnParameters,
+    event::command::{CommandComplete, ReturnParameters},
     host::{uart::Packet, AdvertisingFilterPolicy, OwnAddressType},
     types::AdvertisingType,
     BdAddr, Event, Status,
@@ -18,13 +18,13 @@ use stm32wb_hal::tl_mbox::lhci::LhciC1DeviceInformationCcrp;
 /// Advertisement interval in milliseconds.
 const ADV_INTERVAL_MS: u64 = 250;
 
-const BLE_DEVICE_LOCAL_NAME: &[u8] = b"TrackSB";
-const BLE_GAP_DEVICE_NAME: &[u8] = b"TrackSB";
+pub const BLE_DEVICE_LOCAL_NAME: &[u8] = b"TrackSB";
+pub const BLE_GAP_DEVICE_NAME: &[u8] = b"TrackSB";
 
 pub mod batt_service;
 pub mod motion_service;
 
-type BleError = embassy_stm32wb55::ble::BleError<
+pub type BleError = embassy_stm32wb55::ble::BleError<
     bluetooth_hci::host::uart::Error<(), stm32wb55::event::Stm32Wb5xError>,
 >;
 
@@ -99,22 +99,27 @@ pub async fn init_gap_and_gatt(ble: &mut Ble) -> Result<(), BleError> {
     //
     ble.perform_command(|rc| rc.init_gatt()).await?;
 
-    let return_params = ble
+    let res = ble
         .perform_command(|rc| rc.init_gap(Role::PERIPHERAL, false, BLE_GAP_DEVICE_NAME.len() as u8))
         .await?;
-    let (service_handle, dev_name_handle, appearance_handle) = if let ReturnParameters::Vendor(
-        stm32wb55::event::command::ReturnParameters::GapInit(stm32wb55::event::command::GapInit {
-            service_handle,
-            dev_name_handle,
-            appearance_handle,
+    let (service_handle, dev_name_handle, appearance_handle) =
+        if let Event::CommandComplete(CommandComplete {
+            return_params:
+                ReturnParameters::Vendor(stm32wb55::event::command::ReturnParameters::GapInit(
+                    stm32wb55::event::command::GapInit {
+                        service_handle,
+                        dev_name_handle,
+                        appearance_handle,
+                        ..
+                    },
+                )),
             ..
-        }),
-    ) = return_params
-    {
-        (service_handle, dev_name_handle, appearance_handle)
-    } else {
-        return Err(BleError::UnexpectedEvent);
-    };
+        }) = res
+        {
+            (service_handle, dev_name_handle, appearance_handle)
+        } else {
+            return Err(BleError::UnexpectedPacket);
+        };
 
     ble.perform_command(|rc| {
         rc.update_characteristic_value(&UpdateCharacteristicValueParameters {

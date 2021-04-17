@@ -5,6 +5,9 @@
 #![no_main]
 #![feature(trait_alias)]
 #![feature(type_alias_impl_trait)]
+#![feature(min_type_alias_impl_trait)]
+#![feature(impl_trait_in_bindings)]
+#![allow(incomplete_features)]
 
 use tracksb as _;
 
@@ -178,9 +181,9 @@ async fn run_main(spawner: Spawner, mut rcc: Rcc, mbox: TlMbox, ipcc: Ipcc) {
         num_of_links: 2,
         extended_packet_length_enable: 1,
         pr_write_list_size: 0x3A,
-        mb_lock_count: 0x80,
-        att_mtu: 1024,
-        slave_sca: 100,
+        mb_lock_count: 0x90,
+        att_mtu: 256,
+        slave_sca: 50,
         master_sca: 0,
         ls_source: 1,
         max_conn_event_length: 0xFFFFFFFF,
@@ -548,7 +551,7 @@ fn main() -> ! {
 
     let mut ipcc = dp.IPCC.constrain();
     let mbox = TlMbox::tl_init(&mut rcc, &mut ipcc);
-    pwr::set_cpu2(false);
+    pwr::set_cpu2(false); // CPU2 will be enabled later by the Ble
 
     /* DELAYS */
     use embassy_stm32wb55::interrupt;

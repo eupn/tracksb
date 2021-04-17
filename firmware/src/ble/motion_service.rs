@@ -1,5 +1,8 @@
 use crate::imu::MotionData;
-use bluetooth_hci::event::command::ReturnParameters;
+use bluetooth_hci::{
+    event::command::{CommandComplete, ReturnParameters},
+    Event,
+};
 use embassy_stm32wb55::ble::Ble;
 use stm32wb55::{
     event::command::{GattCharacteristic, GattService},
@@ -30,7 +33,7 @@ impl MotionService {
     const MAX_ATTRIBUTE_RECORDS: usize = 8; // TODO: fix to appropriate value
 
     pub async fn new(ble: &mut Ble) -> Result<Self, crate::ble::BleError> {
-        let return_params = ble
+        let res = ble
             .perform_command(|rc| {
                 rc.add_service(&AddServiceParameters {
                     uuid: MotionService::UUID,
@@ -40,17 +43,21 @@ impl MotionService {
             })
             .await?;
 
-        let handle = if let ReturnParameters::Vendor(
-            stm32wb55::event::command::ReturnParameters::GattAddService(GattService {
-                status: _,
-                service_handle,
-            }),
-        ) = return_params
+        let handle = if let Event::CommandComplete(CommandComplete {
+            return_params:
+                ReturnParameters::Vendor(stm32wb55::event::command::ReturnParameters::GattAddService(
+                    GattService {
+                        status: _,
+                        service_handle,
+                    },
+                )),
+            ..
+        }) = res
         {
             // TODO: check status
             service_handle
         } else {
-            return Err(super::BleError::UnexpectedEvent);
+            return Err(super::BleError::UnexpectedPacket);
         };
 
         let notify_char = MotionCharacteristic::new(handle, ble).await?;
@@ -118,20 +125,24 @@ impl MotionCharacteristic {
             })
             .await?;
 
-        let handle = if let ReturnParameters::Vendor(
-            stm32wb55::event::command::ReturnParameters::GattAddCharacteristic(
-                GattCharacteristic {
-                    status,
-                    characteristic_handle,
-                },
-            ),
-        ) = return_params
+        let handle = if let Event::CommandComplete(CommandComplete {
+            return_params:
+                ReturnParameters::Vendor(
+                    stm32wb55::event::command::ReturnParameters::GattAddCharacteristic(
+                        GattCharacteristic {
+                            status,
+                            characteristic_handle,
+                        },
+                    ),
+                ),
+            ..
+        }) = return_params
         {
             // TODO: check status
             defmt::info!("Status: {:?}", defmt::Debug2Format(&status));
             characteristic_handle
         } else {
-            return Err(crate::ble::BleError::UnexpectedEvent);
+            return Err(crate::ble::BleError::UnexpectedPacket);
         };
 
         Ok(Self { handle })
