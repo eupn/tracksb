@@ -55,4 +55,10 @@ impl StatusLed {
     pub fn turn_off(&mut self) {
         self.pwm_pin.set_duty(self.max_duty);
     }
+
+    pub fn set_duty_percentage(&mut self, percent: u32) {
+        let frac_duty = self.max_duty as f32 * (percent as f32 / 100f32);
+        let inv_duty = self.max_duty - frac_duty as u32;
+        self.pwm_pin.set_duty(inv_duty);
+    }
 }
