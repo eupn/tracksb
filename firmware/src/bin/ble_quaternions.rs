@@ -3,6 +3,7 @@
 
 #![no_std]
 #![no_main]
+
 #![feature(trait_alias)]
 #![feature(type_alias_impl_trait)]
 #![feature(min_type_alias_impl_trait)]
@@ -12,8 +13,10 @@
 use tracksb as _;
 
 use async_embedded_traits::delay::AsyncDelayMs;
+use bbqueue::{BBBuffer, ConstBBBuffer};
 use core::cell::UnsafeCell;
 use cortex_m_rt::{entry, exception, ExceptionFrame};
+use defmt_persist::{LogBuffer, LogManager};
 use embassy::{
     executor::{task, Executor, Spawner},
     util::{Forever, InterruptFuture, Signal},
@@ -60,6 +63,7 @@ use tracksb::{
     led::StatusLed,
     pmic,
     pmic::{wait_init_pmic, ImuPowerState, Pmic},
+    storage::LogsStorage,
 };
 
 struct SyncWrapper<T>(pub UnsafeCell<Option<T>>);
@@ -92,6 +96,9 @@ static MOTION_DATA_QUEUE: SyncWrapper<
 
 static BATTERY_LEVEL_UPDATE_SIGNAL: Signal<()> = Signal::new();
 const BATTERY_LEVEL_UPDATE_INTERVAL_MS: u32 = 10_000;
+
+static LOGGER: SyncWrapper<LogManager<LogsStorage>> = SyncWrapper::new_none();
+static LOG_BUF: LogBuffer = BBBuffer(ConstBBBuffer::new());
 
 /// Initializes the peripherals (PMIC, IMU, BLE, etc.) and
 /// spawns the rest of the subtasks.
@@ -329,6 +336,11 @@ async fn ble_task() {
             };
 
             match update_action {
+                UpdateAction::BleEvents | UpdateAction::BatteryLevel => flush_logs(),
+                _ => (),
+            }
+
+            match update_action {
                 UpdateAction::BleEvents => (),
                 UpdateAction::BatteryLevel => update_battery_level(&mut *ble).await,
                 UpdateAction::MotionData => update_motion_data(&mut *ble).await,
@@ -336,6 +348,22 @@ async fn ble_task() {
 
             core::mem::drop(ble);
         }
+    }
+}
+
+fn flush_logs() {
+    if let Some(logger) = unsafe { &mut *LOGGER.0.get() } {
+        let fp = unsafe {
+            core::mem::transmute::<_, &'static mut stm32wb_hal::flash::Parts>(
+                &mut Peripherals::steal().FLASH.constrain(),
+            )
+        };
+        let flash = fp
+            .keyr
+            .unlock_flash(&mut fp.sr, &mut fp.c2sr, &mut fp.cr)
+            .unwrap();
+
+        logger.drain_storage(&mut LogsStorage::from(flash)).unwrap();
     }
 }
 
@@ -499,8 +527,6 @@ static EXECUTOR: Forever<Executor> = Forever::new();
 
 #[entry]
 fn main() -> ! {
-    defmt::info!("Starting");
-
     let dp = stm32::Peripherals::take().unwrap();
     let _cp = cortex_m::peripheral::Peripherals::take().unwrap();
 
@@ -539,7 +565,24 @@ fn main() -> ! {
         .lptim1_src(LptimClkSrc::Lse)
         .lptim2_src(LptimClkSrc::Lse);
 
-    let mut rcc = rcc.apply_clock_config(clock_config, &mut dp.FLASH.constrain().acr);
+    let fp = unsafe {
+        core::mem::transmute::<_, &'static mut stm32wb_hal::flash::Parts>(
+            &mut Peripherals::steal().FLASH.constrain(),
+        )
+    };
+    let mut rcc = rcc.apply_clock_config(clock_config, &mut fp.acr);
+
+    let flash = fp
+        .keyr
+        .unlock_flash(&mut fp.sr, &mut fp.c2sr, &mut fp.cr)
+        .unwrap();
+    let mut storage = LogsStorage::from(flash);
+    storage.erase().expect("erase logs");
+
+    let logger = LogManager::try_new(&LOG_BUF, &mut storage).unwrap();
+    unsafe { &mut *LOGGER.0.get() }.replace(logger);
+
+    defmt::info!("Starting");
 
     smps::Smps::enable();
     while !smps::Smps::is_enabled() {

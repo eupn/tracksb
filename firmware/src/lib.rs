@@ -4,7 +4,7 @@
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use defmt_rtt as _; // global logger
+use defmt_persist as _; // global logger
 
 use stm32wb_hal as _; // memory layout
 
@@ -16,13 +16,7 @@ pub mod bsp;
 pub mod imu;
 pub mod led;
 pub mod pmic;
-
-// same panicking *behavior* as `panic-probe` but doesn't print a panic message
-// this prevents the panic message being printed *twice* when `defmt::panic` is invoked
-#[defmt::panic_handler]
-fn panic() -> ! {
-    cortex_m::asm::udf()
-}
+pub mod storage;
 
 defmt::timestamp! {"{=u64}", {
         static COUNT: AtomicUsize = AtomicUsize::new(0);

@@ -31,6 +31,13 @@ stm32wb-hal = { version = "0.1", features = ["rt", "xG-package", "stm32-usbd"] }
 usb-device = "0.2"
 usbd-serial = "0.1.0"
 if_chain = "1.0.1"
+embedded-storage = { git = "https://github.com/rust-embedded-community/embedded-storage" }
+
+[dependencies.defmt-persist]
+#git = "https://github.com/eupn/defmt-persist.git"
+#branch = "chore/update-defmt"
+#features = ["rtt"]
+path = "../../defmt-persist"
 
 # TODO: update to 1.0
 [dependencies.embedded-hal]
