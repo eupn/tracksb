@@ -75,10 +75,10 @@ Here are some stuff that should be done or improved, in no particular order.
   - [ ] Asynchronously wait for the PMIC to appear on I2C bus on the very first start (battery just plugged)
     - [x] Async I2C retry
     - [ ] Wait for `PWROK` interrupt (not possible in current revision `C`, fixed in rev. `D`)
-- [ ] Non-Volatile Logging
-  - [ ] Persist panic messages?
-  - [ ] Persist `defmt` logs?
-  - [ ] A simple way to download and read logs & postmortems
+- [x] Non-Volatile Logging
+  - [x] Persist panic messages
+  - [x] Persist `defmt` logs (powered by [`defmt-persist`])
+  - [x] A simple way to download and read logs & postmortems (done with [`probe-rs`] + [`defmt-print`])
 
 #### Software
 
@@ -94,3 +94,6 @@ Here are some stuff that should be done or improved, in no particular order.
 </details>
 
 [`embassy`]: https://github.com/akiles/embassy
+[`defmt-persist`]: https://github.com/BlackbirdHQ/defmt-persist
+[`probe-rs`]: https://github.com/probe-rs/probe-rs
+[`defmt-print`]: https://github.com/eupn/defmt-print
