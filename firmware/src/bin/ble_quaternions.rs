@@ -363,7 +363,7 @@ fn flush_logs() {
             .unlock_flash(&mut fp.sr, &mut fp.c2sr, &mut fp.cr)
             .unwrap();
 
-        logger.drain_storage(&mut LogsStorage::from(flash)).unwrap();
+        logger.drain_storage(&mut LogsStorage::from(flash)).ok();
     }
 }
 
@@ -440,7 +440,6 @@ async fn imu_int() {
             then {
                 // Ignore interrupts if IMU isn't enabled
                 if !pmic.imu_enabled().unwrap() {
-                    defmt::info!("IMU isn't enabled");
                     continue;
                 }
 

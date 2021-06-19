@@ -173,7 +173,6 @@ impl<E: core::fmt::Debug, I: AsyncI2c<E>> Pmic<Initialized, E, I> {
 
     /// Checks IRQ flags and clears pending IRQs.
     pub async fn process_irqs(&mut self) -> Result<ImuPowerState, axp173::Error<E>> {
-        defmt::info!("PMIC IRQ START");
         let mut imu_power_state = ImuPowerState::Unchanged;
 
         if self.axp173.check_irq(Irq::ButtonLongPress).await? {
@@ -205,8 +204,6 @@ impl<E: core::fmt::Debug, I: AsyncI2c<E>> Pmic<Initialized, E, I> {
 
         // Clear other possible IRQs otherwise we can't rely on the IRQ pin
         self.axp173.clear_all_irq().await?;
-
-        defmt::info!("PMIC IRQ FINISH");
 
         Ok(imu_power_state)
     }
