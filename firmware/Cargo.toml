@@ -28,7 +28,11 @@ panic-probe = { version = "0.2", features = ["print-defmt"] }
 panic-reset = "0.1.0"
 stm32wb-hal = { version = "0.1", features = ["rt", "xG-package", "stm32-usbd"] }
 if_chain = "1.0.1"
-embedded-storage = { git = "https://github.com/rust-embedded-community/embedded-storage" }
+#embedded-storage = { git = "https://github.com/rust-embedded-community/embedded-storage" }
+
+[dependencies.embedded-storage]
+git = "https://github.com/eupn/embedded-storage"
+branch = "erasable-storage"
 
 [dependencies.defmt-persist]
 #git = "https://github.com/eupn/defmt-persist.git"

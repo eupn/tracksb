@@ -576,7 +576,6 @@ fn main() -> ! {
         .unlock_flash(&mut fp.sr, &mut fp.c2sr, &mut fp.cr)
         .unwrap();
     let mut storage = LogsStorage::from(flash);
-    storage.erase().expect("erase logs");
 
     let logger = LogManager::try_new(&LOG_BUF, &mut storage).unwrap();
     unsafe { &mut *LOGGER.0.get() }.replace(logger);

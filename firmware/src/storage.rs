@@ -1,10 +1,11 @@
-use embedded_storage::{ReadStorage, Storage};
+use embedded_storage::{ReadStorage, Storage, ErasableStorage};
 use stm32wb_hal::flash::{FlashPage, FlashProgramming, Read, WriteErase};
 
 const FLASH_PAGE_SIZE_BYTES: u32 = 4096;
 const FLASH_BASE_ADDRESS: u32 = 0x0800_0000;
+const LOGS_STORAGE_SIZE_PAGES: u32 = 4;
 const LOGS_BASE_ADDRESS: u32 = FLASH_BASE_ADDRESS + 64 * FLASH_PAGE_SIZE_BYTES;
-const LOGS_END_ADDRESS: u32 = LOGS_BASE_ADDRESS + 5 * FLASH_PAGE_SIZE_BYTES;
+const LOGS_END_ADDRESS: u32 = LOGS_BASE_ADDRESS + LOGS_STORAGE_SIZE_PAGES * FLASH_PAGE_SIZE_BYTES;
 
 pub struct LogsStorage<'a>(FlashProgramming<'a>);
 
@@ -56,6 +57,22 @@ impl<'a> Storage for LogsStorage<'a> {
 
         if self.0.write(address as usize, bytes).is_err() {
             return Err(());
+        }
+
+        Ok(())
+    }
+}
+
+impl<'a> ErasableStorage for LogsStorage<'a> {
+    type Error = ();
+    const ERASE_SIZE: u32 = FLASH_PAGE_SIZE_BYTES;
+
+    fn try_erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        let from = LOGS_BASE_ADDRESS + from;
+        let to = LOGS_BASE_ADDRESS + to;
+
+        for page_nr in (from..=to).step_by(FLASH_PAGE_SIZE_BYTES as usize).map(|addr| addr / FLASH_PAGE_SIZE_BYTES) {
+            self.0.erase_page(FlashPage(page_nr as usize)).map_err(|_| ())?;
         }
 
         Ok(())
