@@ -5,7 +5,11 @@
 
 export ELF_PATH=target/thumbv7em-none-eabihf/release/ble_quaternions
 export LOGS_FLASH_BASE_ADDR=08040000
-export LOGS_FLASH_SIZE_BYTES=4096
+export LOGS_FLASH_SIZE_BYTES=16384
 export CHIP_NAME=STM32WB55CGUx
 
-probe-rs-cli dump --chip $CHIP_NAME $LOGS_FLASH_BASE_ADDR $LOGS_FLASH_SIZE_BYTES | defmt-print $ELF_PATH
+if [ ${1-notsorted} == "sorted" ]; then
+    SORTED=--sorted
+fi
+
+probe-rs-cli dump --chip $CHIP_NAME $LOGS_FLASH_BASE_ADDR $LOGS_FLASH_SIZE_BYTES | defmt-persist-print $ELF_PATH $SORTED
