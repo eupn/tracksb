@@ -490,8 +490,6 @@ async fn pmic_int() {
                         ImuPowerState::Enabled => imu_on_off(pmic, imu, delay, true).await,
                         ImuPowerState::Unchanged => (),
                     }
-
-                    pmic.show_current().await.unwrap();
                 }
             }
         }
