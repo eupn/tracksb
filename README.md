@@ -9,7 +9,7 @@ A companion mobile app could be used to get useful insights into the session.
 
 #### Board
 
-The current revision is `C`. It uses:
+The current revision is `D`. It uses:
 
 * [STM32WB55](https://www.st.com/en/microcontrollers-microprocessors/stm32wb55rg.html)
   ([hal](https://github.com/eupn/stm32wb-hal)) as a Cortex-M4F + Bluetooth (BLE) microcontroller
@@ -18,15 +18,22 @@ The current revision is `C`. It uses:
   together with a built-in sensor fusion algorithm
 * [AXP173](http://www.x-powers.com/en.php/Info/product_detail/article_id/27)
   ([driver](https://github.com/eupn/axp173-rs)) as a Li-Po battery charging, power-path and gas gauge controller
-  
+* [Type-C USB Port](https://gct.co/files/drawings/usb4085.pdf) for charging & optional USB data/DFU
+* [SOICbite](https://github.com/SimonMerrett/SOICbite) programming port suitable for fast and convenient programming & debugging of the device firmware with  a standard SOIC-8 clip
 <details>
-  <summary>Revision C board picture</summary>
+  <summary>Revision D board picture</summary>
 
-  ![Revision C PCB picture](docs/rev-c.png)
+  ![Revision D PCB picture](docs/rev-d.jpg)
 </details>
 
-A link to [Upverter Design](https://upverter.com/design/ep/2dfdd177c0e55fc7/tracksb-stm32wb---rev-c/)
+A link to [Upverter Design rev. D](https://upverter.com/design/ep/13d0e37f71522631/)
 for schematic and PCB layout.
+
+<details>
+  <summary>Device System Diagram</summary>
+
+  ![Device System Diagram](docs/system.png)
+</details>
 
 #### Firmware
 
@@ -74,7 +81,7 @@ Here are some stuff that should be done or improved, in no particular order.
   - [ ] Detect when device is IDLE and scale down the IMU frequency
   - [ ] Asynchronously wait for the PMIC to appear on I2C bus on the very first start (battery just plugged)
     - [x] Async I2C retry
-    - [ ] Wait for `PWROK` interrupt (not possible in current revision `C`, fixed in rev. `D`)
+    - [ ] Wait for `PWROK` interrupt
 - [x] Non-Volatile Logging
   - [x] Persist panic messages
   - [x] Persist `defmt` logs (powered by [`defmt-persist`])
